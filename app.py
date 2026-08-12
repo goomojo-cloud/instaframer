@@ -1,12 +1,17 @@
 import streamlit as st
-import streamlit.components.v1 as components
 from PIL import Image, ImageOps, ImageDraw, ImageFont
 import io
 import urllib.request
 import os
 import json
+import extra_streamlit_components as stx
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
+
+# ----------------------------------
+# クッキーマネージャーの初期化
+# ----------------------------------
+cookie_manager = stx.get_cookie_manager()
 
 st.title("📷 InstaFramer")
 st.caption("写真を枠付き正方形に変換 ＋ ウォーターマーク追加")
@@ -48,7 +53,7 @@ available_fonts = download_fonts()
 font_list = list(available_fonts.keys()) if available_fonts else ["デフォルト"]
 
 # ----------------------------------
-# セッション状態＆初期値の管理
+# 初期値設定 & クッキーからの復元
 # ----------------------------------
 DEFAULT_SETTINGS = {
     "tags_input": "#instagram #photo #japan",
@@ -65,48 +70,27 @@ DEFAULT_SETTINGS = {
     "wm_opacity": 70
 }
 
-# 初回アクセス時にデフォルト値をセット
-for key, val in DEFAULT_SETTINGS.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
+# クッキーから保存済み設定を取得
+saved_cookie_val = cookie_manager.get('instaframer_user_config')
 
-# クエリパラメータによるローカルストレージからの設定復元処理
-query_params = st.query_params
-if "restore_data" in query_params:
+if "config_loaded" not in st.session_state:
+    st.session_state["config_loaded"] = False
+
+if not st.session_state["config_loaded"] and saved_cookie_val:
     try:
-        restored = json.loads(query_params["restore_data"])
-        for k, v in restored.items():
+        loaded_cfg = json.loads(saved_cookie_val)
+        for k, v in loaded_cfg.items():
             if k in DEFAULT_SETTINGS:
                 st.session_state[k] = v
-        st.query_params.clear()
-        st.toast("💾 前回保存した設定を読み込みました！")
+        st.session_state["config_loaded"] = True
+        st.toast("💾 保存された個人設定を読み込みました！")
     except Exception:
         pass
 
-# ----------------------------------
-# 自動読み込み用JS (Parent Window 連携)
-# ----------------------------------
-if "has_checked_storage" not in st.session_state:
-    st.session_state["has_checked_storage"] = True
-    auto_load_js = """
-        <script>
-            setTimeout(function() {
-                try {
-                    const savedConfig = window.parent.localStorage.getItem('instaframer_config') || window.localStorage.getItem('instaframer_config');
-                    if (savedConfig) {
-                        const parentUrl = new URL(window.parent.location.href);
-                        if (!parentUrl.searchParams.has('restore_data')) {
-                            parentUrl.searchParams.set('restore_data', savedConfig);
-                            window.parent.location.href = parentUrl.toString();
-                        }
-                    }
-                } catch (e) {
-                    console.log(e);
-                }
-            }, 300);
-        </script>
-    """
-    components.html(auto_load_js, height=0)
+# 初期値未設定のものを割り当て
+for key, val in DEFAULT_SETTINGS.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
 # ----------------------------------
 # サイドバー設定エリア
@@ -151,12 +135,12 @@ if enable_wm:
 st.sidebar.markdown("---")
 col_btn1, col_btn2 = st.sidebar.columns(2)
 
-# 保存ボタン処理
-if col_btn1.button("💾 設定を保存", use_container_width=True):
+# 保存ボタン処理（端末のクッキーに書き込み）
+if col_btn1.button("💾 マイ設定を保存", use_container_width=True):
     current_config = {
         "tags_input": st.session_state.get("tags_input", "#instagram #photo #japan"),
-        "bg_color_hex": st.session_state.bg_color_hex,
-        "enable_wm": st.session_state.enable_wm,
+        "bg_color_hex": st.session_state.get("bg_color_hex", "#FFFFFF"),
+        "enable_wm": st.session_state.get("enable_wm", False),
         "wm_type": st.session_state.get("wm_type", "テキスト"),
         "wm_text": st.session_state.get("wm_text", "© My Photo"),
         "selected_font_name": st.session_state.get("selected_font_name", font_list[0]),
@@ -168,35 +152,17 @@ if col_btn1.button("💾 設定を保存", use_container_width=True):
         "wm_opacity": st.session_state.get("wm_opacity", 70)
     }
     json_str = json.dumps(current_config)
-    js_code = f"""
-        <script>
-            try {{
-                window.parent.localStorage.setItem('instaframer_config', '{json_str}');
-                window.localStorage.setItem('instaframer_config', '{json_str}');
-                alert('現在の設定をブラウザに保存しました！次回アクセス時も引き継がれます。');
-            }} catch(e) {{
-                alert('保存処理でエラーが発生しました');
-            }}
-        </script>
-    """
-    components.html(js_code, height=0)
+    # クッキーに30日間の有効期限で保存
+    cookie_manager.set('instaframer_user_config', json_str, key="set_cookie", expires_at=None)
+    st.success("お使いの端末に個人設定を保存しました！次回以降も自動復元されます。")
 
-# リセットボタン処理
+# リセットボタン処理（クッキーを削除）
 if col_btn2.button("🔄 リセット", use_container_width=True):
-    js_code = """
-        <script>
-            try {
-                window.parent.localStorage.removeItem('instaframer_config');
-                window.localStorage.removeItem('instaframer_config');
-                window.parent.location.href = window.parent.location.pathname;
-            } catch(e) {
-                window.location.reload();
-            }
-        </script>
-    """
+    cookie_manager.delete('instaframer_user_config', key="del_cookie")
     for k, v in DEFAULT_SETTINGS.items():
         st.session_state[k] = v
-    components.html(js_code, height=0)
+    st.session_state["config_loaded"] = True
+    st.rerun()
 
 
 def get_custom_font(font_name, font_size):
