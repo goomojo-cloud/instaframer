@@ -1,6 +1,8 @@
 import streamlit as st
 from PIL import Image, ImageOps, ImageDraw, ImageFont
 import io
+import urllib.request
+import os
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
 
@@ -8,12 +10,44 @@ st.title("📷 InstaFramer")
 st.caption("写真を枠付き正方形に変換 ＋ ウォーターマーク追加")
 
 # ----------------------------------
+# フォント自動ダウンロード＆管理機能
+# ----------------------------------
+FONTS_DIR = "fonts"
+os.makedirs(FONTS_DIR, exist_ok=True)
+
+# 使用するフリーフォントの定義（Google Fonts等から取得）
+FONT_URLS = {
+    "ゴシック体 (Zen Kaku Gothic)": "https://github.com/google/fonts/raw/main/ofl/zenkakugothicnew/ZenKakuGothicNew-Bold.ttf",
+    "明朝体 (Shippori Mincho)": "https://github.com/google/fonts/raw/main/ofl/shipporimincho/ShipporiMincho-Bold.ttf",
+    "英文モダン (Montserrat)": "https://github.com/google/fonts/raw/main/ofl/montserrat/Montserrat-Bold.ttf",
+    "英文エレガント (Cinzel)": "https://github.com/google/fonts/raw/main/ofl/cinzel/Cinzel-Bold.ttf",
+    "手書き風 (Caveat)": "https://github.com/google/fonts/raw/main/ofl/caveat/Caveat-Bold.ttf"
+}
+
+@st.cache_data
+def download_fonts():
+    """フォントファイルをローカルにキャッシュダウンロード"""
+    font_paths = {}
+    for font_name, url in FONT_URLS.items():
+        filename = os.path.basename(url)
+        local_path = os.path.join(FONTS_DIR, filename)
+        if not os.path.exists(local_path):
+            try:
+                urllib.request.urlretrieve(url, local_path)
+            except Exception:
+                pass
+        if os.path.exists(local_path):
+            font_paths[font_name] = local_path
+    return font_paths
+
+available_fonts = download_fonts()
+
+# ----------------------------------
 # サイドバー設定エリア
 # ----------------------------------
 st.sidebar.header("🎨 アスペクト＆背景設定")
 bg_color_hex = st.sidebar.color_picker("背景色を選択", "#FFFFFF")
 
-# 16進数カラーコードをRGBに変換
 bg_color_hex_clean = bg_color_hex.lstrip('#')
 bg_color_rgb = tuple(int(bg_color_hex_clean[i:i+2], 16) for i in (0, 2, 4))
 
@@ -29,12 +63,15 @@ wm_position = "右下"
 wm_opacity = 50
 size_ratio = 30
 text_color_hex = "#FFFFFF"
+selected_font_name = list(available_fonts.keys())[0] if available_fonts else None
 
 if enable_wm:
     wm_type = st.sidebar.radio("種類", ["テキスト", "ロゴ画像"])
     
     if wm_type == "テキスト":
         wm_text = st.sidebar.text_input("テキスト内容", value="© My Photo")
+        if available_fonts:
+            selected_font_name = st.sidebar.selectbox("フォント (字体)", list(available_fonts.keys()))
         size_ratio = st.sidebar.slider("文字の横幅割合 (元画像幅の %)", 10, 95, 30)
         text_color_hex = st.sidebar.color_picker("文字色", "#FFFFFF")
     else:
@@ -45,27 +82,19 @@ if enable_wm:
     wm_opacity = st.sidebar.slider("不透明度 (%)", 10, 100, 70)
 
 
-def get_scalable_font(font_size):
-    """OS環境に依存せず、指定サイズでスケーラブルなフォントオブジェクトを取得する関数"""
-    try:
-        # Pillow標準組み込みのTrueTypeフォント（FreeMono等）を取得
-        return ImageFont.load_default(size=font_size)
-    except TypeError:
-        # 古いPillowバージョンのフォールバック処理
+def get_custom_font(font_name, font_size):
+    """選択されたフォントのImageFontオブジェクトを取得"""
+    font_path = available_fonts.get(font_name) if available_fonts else None
+    if font_path and os.path.exists(font_path):
         try:
-            return ImageFont.truetype("DejaVuSans.ttf", font_size)
+            return ImageFont.truetype(font_path, font_size)
         except OSError:
-            try:
-                return ImageFont.truetype("arial.ttf", font_size)
-            except OSError:
-                return ImageFont.load_default()
+            pass
+    return ImageFont.load_default(size=font_size)
 
 
 def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct):
-    """
-    正方形キャンバス上の『元画像（写真本体）領域』内にウォーターマークを配置する処理
-    photo_rect: (offset_x, offset_y, photo_w, photo_h)
-    """
+    """正方形キャンバス上の『元画像（写真本体）領域』内にウォーターマークを配置"""
     offset_x, offset_y, photo_w, photo_h = photo_rect
     
     img_rgba = base_square_img.convert("RGBA")
@@ -78,9 +107,8 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct)
     if wm_type == "テキスト" and wm_text:
         target_text_w = int(photo_w * (size_ratio / 100.0))
         
-        # 基準サイズ100pxでフォントを読み込んで幅を測定
         test_font_size = 100
-        test_font = get_scalable_font(test_font_size)
+        test_font = get_custom_font(selected_font_name, test_font_size)
         
         bbox = draw.textbbox((0, 0), wm_text, font=test_font)
         initial_w = bbox[2] - bbox[0]
@@ -88,16 +116,14 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct)
         if initial_w > 0:
             calculated_font_size = int(test_font_size * (target_text_w / initial_w))
             font_size = max(10, calculated_font_size)
-            font = get_scalable_font(font_size)
+            font = get_custom_font(selected_font_name, font_size)
         else:
             font = test_font
 
-        # 決定したサイズで描画範囲を正確に計算
         bbox = draw.textbbox((0, 0), wm_text, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
         
-        # 写真領域内の相対位置計算
         if position == "右下":
             rel_x = photo_w - text_w - margin
             rel_y = photo_h - text_h - margin
@@ -189,23 +215,19 @@ if uploaded_files:
             photo_w, photo_h = image.size
             max_side = max(photo_w, photo_h)
             
-            # 正方形キャンバスの作成
             square_img = Image.new("RGB", (max_side, max_side), bg_color_rgb)
             offset_x = (max_side - photo_w) // 2
             offset_y = (max_side - photo_h) // 2
             square_img.paste(image, (offset_x, offset_y))
             
-            # ウォーターマーク処理の適用
             if enable_wm:
                 photo_rect = (offset_x, offset_y, photo_w, photo_h)
                 square_img = apply_watermark_on_photo(square_img, photo_rect, wm_position, wm_opacity)
             
-            # ブラウザダウンロード用バイト処理
             buf = io.BytesIO()
             square_img.save(buf, format="JPEG", quality=95)
             byte_im = buf.getvalue()
             
-            # プレビュー表示と個別ダウンロードボタン
             cols = st.columns([1, 2])
             with cols[0]:
                 st.image(square_img, use_container_width=True)
