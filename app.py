@@ -202,110 +202,117 @@ def get_custom_font(font_name, font_size):
         return ImageFont.load_default()
 
 
-def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct, off_x_pct, off_y_pct, logo_file=None):
-    offset_x, offset_y, photo_w, photo_h = photo_rect
+def process_single_image(uploaded_file, idx, bg_rgb, enable_watermark, logo_file):
+    """単一の画像を処理し、(ファイル名, JPEGバイナリ) を返してメモリを即時解放する"""
+    MAX_DIM = 1920  # フルHD基準サイズに縮小してメモリ領域を大幅削減
     
-    img_rgba = base_square_img.convert("RGBA")
-    overlay = Image.new("RGBA", img_rgba.size, (255, 255, 255, 0))
-    draw = ImageDraw.Draw(overlay)
+    image = Image.open(uploaded_file)
+    image = ImageOps.exif_transpose(image)
     
-    alpha = int(255 * (opacity_pct / 100))
-    margin_x = int(photo_w * (off_x_pct / 100.0))
-    margin_y = int(photo_h * (off_y_pct / 100.0))
+    if max(image.size) > MAX_DIM:
+        image.thumbnail((MAX_DIM, MAX_DIM), Image.Resampling.LANCZOS)
     
-    wm_t = st.session_state.get("wm_type", "テキスト")
-    wm_txt = st.session_state.get("wm_text", "")
-    s_ratio = st.session_state.get("size_ratio", 20)
-    font_n = st.session_state.get("selected_font_name", font_list[0])
-    tc_hex = st.session_state.get("text_color_hex", "#FFFFFF")
-    
-    if wm_t == "テキスト" and wm_txt:
-        target_text_w = int(photo_w * (s_ratio / 100.0))
+    if image.mode != "RGB":
+        image = image.convert("RGB")
         
-        test_font_size = 100
-        test_font = get_custom_font(font_n, test_font_size)
+    photo_w, photo_h = image.size
+    max_side = max(photo_w, photo_h)
+    
+    square_img = Image.new("RGB", (max_side, max_side), bg_rgb)
+    offset_x = (max_side - photo_w) // 2
+    offset_y = (max_side - photo_h) // 2
+    square_img.paste(image, (offset_x, offset_y))
+    del image
+    
+    if enable_watermark:
+        img_rgba = square_img.convert("RGBA")
+        overlay = Image.new("RGBA", img_rgba.size, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(overlay)
         
-        try:
-            bbox = draw.textbbox((0, 0), wm_txt, font=test_font)
-            initial_w = bbox[2] - bbox[0]
-        except Exception:
-            initial_w = 100
+        opacity_pct = st.session_state.get("wm_opacity", 70)
+        alpha = int(255 * (opacity_pct / 100))
+        off_x_pct = st.session_state.get("offset_x_pct", 3)
+        off_y_pct = st.session_state.get("offset_y_pct", 3)
+        margin_x = int(photo_w * (off_x_pct / 100.0))
+        margin_y = int(photo_h * (off_y_pct / 100.0))
+        
+        wm_t = st.session_state.get("wm_type", "テキスト")
+        wm_txt = st.session_state.get("wm_text", "")
+        s_ratio = st.session_state.get("size_ratio", 20)
+        font_n = st.session_state.get("selected_font_name", font_list[0])
+        tc_hex = st.session_state.get("text_color_hex", "#FFFFFF")
+        position = st.session_state.get("wm_position", "左下")
+        
+        if wm_t == "テキスト" and wm_txt:
+            target_text_w = int(photo_w * (s_ratio / 100.0))
+            test_font = get_custom_font(font_n, 100)
+            try:
+                bbox = draw.textbbox((0, 0), wm_txt, font=test_font)
+                initial_w = bbox[2] - bbox[0]
+            except Exception:
+                initial_w = 100
 
-        if initial_w > 0:
-            calculated_font_size = int(test_font_size * (target_text_w / initial_w))
-            font_size = max(10, calculated_font_size)
+            font_size = max(10, int(100 * (target_text_w / initial_w))) if initial_w > 0 else 20
             font = get_custom_font(font_n, font_size)
-        else:
-            font = test_font
 
-        try:
-            bbox = draw.textbbox((0, 0), wm_txt, font=font)
-            text_w = bbox[2] - bbox[0]
-            text_h = bbox[3] - bbox[1]
-        except Exception:
-            text_w, text_h = 100, 20
-        
-        if position == "右下":
-            rel_x = photo_w - text_w - margin_x
-            rel_y = photo_h - text_h - margin_y
-        elif position == "左下":
-            rel_x = margin_x
-            rel_y = photo_h - text_h - margin_y
-        elif position == "右上":
-            rel_x = photo_w - text_w - margin_x
-            rel_y = margin_y
-        elif position == "左上":
-            rel_x = margin_x
-            rel_y = margin_y
-        else:  # 中央
-            rel_x = (photo_w - text_w) // 2
-            rel_y = (photo_h - text_h) // 2
+            try:
+                bbox = draw.textbbox((0, 0), wm_txt, font=font)
+                text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            except Exception:
+                text_w, text_h = 100, 20
             
-        abs_x = offset_x + rel_x
-        abs_y = offset_y + rel_y
+            if position == "右下":
+                rel_x, rel_y = photo_w - text_w - margin_x, photo_h - text_h - margin_y
+            elif position == "左下":
+                rel_x, rel_y = margin_x, photo_h - text_h - margin_y
+            elif position == "右上":
+                rel_x, rel_y = photo_w - text_w - margin_x, margin_y
+            elif position == "左上":
+                rel_x, rel_y = margin_x, margin_y
+            else:
+                rel_x, rel_y = (photo_w - text_w) // 2, (photo_h - text_h) // 2
+                
+            tc_clean = tc_hex.lstrip('#')
+            tc_rgb = tuple(int(tc_clean[i:i+2], 16) for i in (0, 2, 4))
+            draw.text((offset_x + rel_x, offset_y + rel_y), wm_txt, font=font, fill=(tc_rgb[0], tc_rgb[1], tc_rgb[2], alpha))
             
-        tc_clean = tc_hex.lstrip('#')
-        tc_rgb = tuple(int(tc_clean[i:i+2], 16) for i in (0, 2, 4))
-        
-        draw.text((abs_x, abs_y), wm_txt, font=font, fill=(tc_rgb[0], tc_rgb[1], tc_rgb[2], alpha))
-        
-    elif wm_t == "ロゴ画像" and logo_file is not None:
-        logo = Image.open(logo_file).convert("RGBA")
-        
-        target_w = int(photo_w * (s_ratio / 100.0))
-        aspect = logo.height / logo.width
-        target_h = int(target_w * aspect)
-        logo = logo.resize((target_w, target_h), Image.Resampling.LANCZOS)
-        
-        r, g, b, a = logo.split()
-        a = a.point(lambda p: int(p * (opacity_pct / 100)))
-        logo = Image.merge("RGBA", (r, g, b, a))
-        
-        if position == "右下":
-            rel_x = photo_w - target_w - margin_x
-            rel_y = photo_h - target_h - margin_y
-        elif position == "左下":
-            rel_x = margin_x
-            rel_y = photo_h - target_h - margin_y
-        elif position == "右上":
-            rel_x = photo_w - target_w - margin_x
-            rel_y = margin_y
-        elif position == "左上":
-            rel_x = margin_x
-            rel_y = margin_y
-        else:  # 中央
-            rel_x = (photo_w - target_w) // 2
-            rel_y = (photo_h - target_h) // 2
+        elif wm_t == "ロゴ画像" and logo_file is not None:
+            logo = Image.open(logo_file).convert("RGBA")
+            target_w = int(photo_w * (s_ratio / 100.0))
+            target_h = int(target_w * (logo.height / logo.width))
+            logo = logo.resize((target_w, target_h), Image.Resampling.LANCZOS)
             
-        abs_x = offset_x + rel_x
-        abs_y = offset_y + rel_y
+            r, g, b, a = logo.split()
+            a = a.point(lambda p: int(p * (opacity_pct / 100)))
+            logo = Image.merge("RGBA", (r, g, b, a))
             
-        overlay.paste(logo, (abs_x, abs_y), logo)
+            if position == "右下":
+                rel_x, rel_y = photo_w - target_w - margin_x, photo_h - target_h - margin_y
+            elif position == "左下":
+                rel_x, rel_y = margin_x, photo_h - target_h - margin_y
+            elif position == "右上":
+                rel_x, rel_y = photo_w - target_w - margin_x, margin_y
+            elif position == "左上":
+                rel_x, rel_y = margin_x, margin_y
+            else:
+                rel_x, rel_y = (photo_w - target_w) // 2, (photo_h - target_h) // 2
+                
+            overlay.paste(logo, (offset_x + rel_x, offset_y + rel_y), logo)
 
-    combined = Image.alpha_composite(img_rgba, overlay)
-    res = combined.convert("RGB")
-    del img_rgba, overlay
-    return res
+        combined = Image.alpha_composite(img_rgba, overlay)
+        square_img = combined.convert("RGB")
+        del img_rgba, overlay
+
+    buf = io.BytesIO()
+    square_img.save(buf, format="JPEG", quality=88, optimize=True)
+    byte_im = buf.getvalue()
+    
+    del square_img
+    gc.collect()
+    
+    raw_name = os.path.splitext(uploaded_file.name)[0]
+    file_name = f"sq_{idx+1}_{raw_name}.jpg"
+    return file_name, byte_im
 
 
 # ----------------------------------
@@ -324,66 +331,23 @@ tags_input = st.text_area("ハッシュタグを入力・編集", key="tags_inpu
 if uploaded_files:
     st.markdown("---")
     st.success(f"{len(uploaded_files)} 枚の画像が選択されました")
-    st.info("💡 iPhoneで個別に保存する場合：画像を長押しして「'写真' に追加」を選択するとカメラロールに直接保存できます。")
     st.subheader("✨ 変換結果＆ダウンロード")
     
-    processed_files = []  # (filename, byte_data) のみ保持
-    MAX_DIM = 2048
-    
-    for idx, uploaded_file in enumerate(uploaded_files):
-        try:
-            image = Image.open(uploaded_file)
-            image = ImageOps.exif_transpose(image)
-            
-            if max(image.size) > MAX_DIM:
-                image.thumbnail((MAX_DIM, MAX_DIM), Image.Resampling.LANCZOS)
-            
-            if image.mode != "RGB":
-                image = image.convert("RGB")
-                
-            photo_w, photo_h = image.size
-            max_side = max(photo_w, photo_h)
-            
-            square_img = Image.new("RGB", (max_side, max_side), bg_color_rgb)
-            offset_x = (max_side - photo_w) // 2
-            offset_y = (max_side - photo_h) // 2
-            square_img.paste(image, (offset_x, offset_y))
-            del image
-            
-            if enable_wm:
-                photo_rect = (offset_x, offset_y, photo_w, photo_h)
-                square_img = apply_watermark_on_photo(
-                    square_img, photo_rect, 
-                    st.session_state.get("wm_position", "左下"), 
-                    st.session_state.get("wm_opacity", 70), 
-                    st.session_state.get("offset_x_pct", 3), 
-                    st.session_state.get("offset_y_pct", 3),
-                    logo_file=wm_logo_file
-                )
-            
-            buf = io.BytesIO()
-            square_img.save(buf, format="JPEG", quality=90, optimize=True)
-            byte_im = buf.getvalue()
-            
-            del square_img
-            gc.collect()
-            
-            raw_name = os.path.splitext(uploaded_file.name)[0]
-            file_name = f"sq_{idx+1}_{raw_name}.jpg"
-            processed_files.append((file_name, byte_im))
-            
-        except Exception as e:
-            st.error(f"エラーが発生しました ({uploaded_file.name}): {e}")
-
-    # ZIP一括ダウンロード処理
-    if len(processed_files) > 1:
+    # 複数枚選択時のZIP作成（ストリーム書き込みで省メモリ化）
+    if len(uploaded_files) > 1:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            for file_name, byte_im in processed_files:
-                zip_file.writestr(file_name, byte_im)
+            for idx, uploaded_file in enumerate(uploaded_files):
+                try:
+                    fname, bdata = process_single_image(uploaded_file, idx, bg_color_rgb, enable_wm, wm_logo_file)
+                    zip_file.writestr(fname, bdata)
+                    del bdata
+                    gc.collect()
+                except Exception as e:
+                    st.error(f"エラー ({uploaded_file.name}): {e}")
         
         st.download_button(
-            label=f"📦 全 {len(processed_files)} 枚をまとめてダウンロード (.zip)",
+            label=f"📦 全 {len(uploaded_files)} 枚をまとめてダウンロード (.zip)",
             data=zip_buffer.getvalue(),
             file_name="instaframer_images.zip",
             mime="application/zip",
@@ -392,16 +356,22 @@ if uploaded_files:
         )
         st.markdown("---")
 
-    # 個別プレビュー＆ダウンロード (バイトデータから描画)
-    for idx, (file_name, byte_im) in enumerate(processed_files):
-        cols = st.columns([1, 2])
-        with cols[0]:
-            st.image(byte_im, use_container_width=True)
-        with cols[1]:
-            st.download_button(
-                label=f"💾 {file_name} を保存",
-                data=byte_im,
-                file_name=file_name,
-                mime="image/jpeg",
-                key=f"dl_{idx}"
-            )
+    # 個別表示＆ダウンロード（1枚ずつ順番に生成＆表示）
+    for idx, uploaded_file in enumerate(uploaded_files):
+        try:
+            fname, bdata = process_single_image(uploaded_file, idx, bg_color_rgb, enable_wm, wm_logo_file)
+            cols = st.columns([1, 2])
+            with cols[0]:
+                st.image(bdata, use_container_width=True)
+            with cols[1]:
+                st.download_button(
+                    label=f"💾 {fname} を保存",
+                    data=bdata,
+                    file_name=fname,
+                    mime="image/jpeg",
+                    key=f"dl_{idx}"
+                )
+            del bdata
+            gc.collect()
+        except Exception as e:
+            st.error(f"エラー ({uploaded_file.name}): {e}")
