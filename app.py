@@ -7,58 +7,8 @@ import gc
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
 
-try:
-    import requests
-except ImportError:
-    requests = None
-
 st.title("📷 InstaFramer")
 st.caption("写真を枠付き正方形に変換 ＋ ウォーターマーク追加")
-
-# ----------------------------------
-# フォント自動ダウンロード＆管理機能
-# ----------------------------------
-FONTS_DIR = "fonts"
-os.makedirs(FONTS_DIR, exist_ok=True)
-
-FONT_URLS = {
-    "ゴシック体 (Zen Kaku Gothic)": "https://cdn.jsdelivr.net/fontsource/fonts/zen-kaku-gothic-new@latest/japanese-700-normal.ttf",
-    "明朝体 (Shippori Mincho)": "https://cdn.jsdelivr.net/fontsource/fonts/shippori-mincho@latest/japanese-700-normal.ttf",
-    "丸ゴシック (M PLUS Rounded 1c)": "https://cdn.jsdelivr.net/fontsource/fonts/m-plus-rounded-1c@latest/japanese-700-normal.ttf",
-    "英文サンセリフ (Montserrat)": "https://cdn.jsdelivr.net/fontsource/fonts/montserrat@latest/latin-700-normal.ttf",
-    "英文セリフ (Cinzel)": "https://cdn.jsdelivr.net/fontsource/fonts/cinzel@latest/latin-700-normal.ttf",
-    "手書き風 (Caveat)": "https://cdn.jsdelivr.net/fontsource/fonts/caveat@latest/latin-700-normal.ttf",
-    "筆記体 (Sacramento)": "https://cdn.jsdelivr.net/fontsource/fonts/sacramento@latest/latin-400-normal.ttf"
-}
-
-@st.cache_data
-def download_fonts():
-    font_paths = {}
-    if not requests:
-        return font_paths
-
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    for font_name, url in FONT_URLS.items():
-        filename = f"{font_name.split()[0]}.ttf"
-        local_path = os.path.join(FONTS_DIR, filename)
-        if not os.path.exists(local_path):
-            try:
-                res = requests.get(url, headers=headers, timeout=5)
-                if res.status_code == 200:
-                    with open(local_path, 'wb') as f:
-                        f.write(res.content)
-            except Exception:
-                pass
-        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-            font_paths[font_name] = local_path
-    return font_paths
-
-try:
-    available_fonts = download_fonts()
-except Exception:
-    available_fonts = {}
-
-font_list = list(available_fonts.keys()) if available_fonts else ["デフォルトフォント"]
 
 # ----------------------------------
 # 初期値設定 & URLパラメータからの復元
@@ -69,7 +19,6 @@ DEFAULT_SETTINGS = {
     "enable_wm": True,
     "wm_type": "テキスト",
     "wm_text": "© My Photo",
-    "selected_font_name": font_list[0],
     "size_ratio": 20,
     "text_color_hex": "#FFFFFF",
     "wm_position": "左下",
@@ -78,38 +27,32 @@ DEFAULT_SETTINGS = {
     "wm_opacity": 70
 }
 
-params = st.query_params
-
-if "init_loaded" not in st.session_state:
-    st.session_state["init_loaded"] = True
-    if "bg" in params:
-        st.session_state["bg_color_hex"] = f"#{params.get('bg')}"
-    if "wm" in params:
-        st.session_state["enable_wm"] = params.get("wm") == "1"
-    if "wmt" in params:
-        st.session_state["wm_type"] = params.get("wmt")
-    if "txt" in params:
-        st.session_state["wm_text"] = params.get("txt")
-    if "fnt" in params and params.get("fnt") in font_list:
-        st.session_state["selected_font_name"] = params.get("fnt")
-    if "sz" in params:
-        try: st.session_state["size_ratio"] = int(params.get("sz"))
-        except: pass
-    if "tc" in params:
-        st.session_state["text_color_hex"] = f"#{params.get('tc')}"
-    if "pos" in params:
-        st.session_state["wm_position"] = params.get("pos")
-    if "ox" in params:
-        try: st.session_state["offset_x_pct"] = int(params.get("ox"))
-        except: pass
-    if "oy" in params:
-        try: st.session_state["offset_y_pct"] = int(params.get("oy"))
-        except: pass
-    if "op" in params:
-        try: st.session_state["wm_opacity"] = int(params.get("op"))
-        except: pass
-    if "tags" in params:
-        st.session_state["tags_input"] = params.get("tags")
+# 安全なクエリパラメータ取得
+try:
+    params = st.query_params
+    if "init_loaded" not in st.session_state:
+        st.session_state["init_loaded"] = True
+        if "bg" in params: st.session_state["bg_color_hex"] = f"#{params.get('bg')}"
+        if "wm" in params: st.session_state["enable_wm"] = params.get("wm") == "1"
+        if "wmt" in params: st.session_state["wm_type"] = params.get("wmt")
+        if "txt" in params: st.session_state["wm_text"] = params.get("txt")
+        if "sz" in params:
+            try: st.session_state["size_ratio"] = int(params.get("sz"))
+            except: pass
+        if "tc" in params: st.session_state["text_color_hex"] = f"#{params.get('tc')}"
+        if "pos" in params: st.session_state["wm_position"] = params.get("pos")
+        if "ox" in params:
+            try: st.session_state["offset_x_pct"] = int(params.get("ox"))
+            except: pass
+        if "oy" in params:
+            try: st.session_state["offset_y_pct"] = int(params.get("oy"))
+            except: pass
+        if "op" in params:
+            try: st.session_state["wm_opacity"] = int(params.get("op"))
+            except: pass
+        if "tags" in params: st.session_state["tags_input"] = params.get("tags")
+except Exception:
+    pass
 
 for k, v in DEFAULT_SETTINGS.items():
     if k not in st.session_state:
@@ -135,10 +78,6 @@ if enable_wm:
     
     if wm_type == "テキスト":
         wm_text = st.sidebar.text_input("テキスト内容", key="wm_text")
-        if font_list:
-            curr_font = st.session_state.get("selected_font_name", font_list[0])
-            font_idx = font_list.index(curr_font) if curr_font in font_list else 0
-            selected_font_name = st.sidebar.selectbox("フォント (字体)", font_list, index=font_idx, key="selected_font_name")
         size_ratio = st.sidebar.number_input("文字の大きさ (元画像幅の %)", min_value=5, max_value=95, step=1, key="size_ratio")
         text_color_hex = st.sidebar.color_picker("文字色", key="text_color_hex")
     else:
@@ -164,7 +103,6 @@ new_params = {
     "wm": "1" if st.session_state.get("enable_wm", True) else "0",
     "wmt": st.session_state.get("wm_type", "テキスト"),
     "txt": st.session_state.get("wm_text", "© My Photo"),
-    "fnt": st.session_state.get("selected_font_name", font_list[0]),
     "sz": str(st.session_state.get("size_ratio", 20)),
     "tc": st.session_state.get("text_color_hex", "#FFFFFF").lstrip('#'),
     "pos": st.session_state.get("wm_position", "左下"),
@@ -177,25 +115,25 @@ new_params = {
 st.sidebar.info("💡 設定変更後に下のボタンでURLを更新し、ブックマークしてください。")
 
 if st.sidebar.button("🔗 この設定用のURLを作成", use_container_width=True):
-    st.query_params.clear()
-    for k, v in new_params.items():
-        st.query_params[k] = v
-    st.sidebar.success("URLに設定を反映しました！この画面のブラウザURLをブックマーク登録してください。")
+    try:
+        st.query_params.clear()
+        for k, v in new_params.items():
+            st.query_params[k] = v
+        st.sidebar.success("URLに設定を反映しました！この画面のブラウザURLをブックマーク登録してください。")
+    except Exception as e:
+        st.sidebar.error(f"URL更新エラー: {e}")
 
 if st.sidebar.button("🔄 デフォルトに戻す", use_container_width=True):
-    st.query_params.clear()
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
     for k, v in DEFAULT_SETTINGS.items():
         st.session_state[k] = v
     st.rerun()
 
 
-def get_custom_font(font_name, font_size):
-    font_path = available_fonts.get(font_name) if available_fonts else None
-    if font_path and os.path.exists(font_path):
-        try:
-            return ImageFont.truetype(font_path, font_size)
-        except Exception:
-            pass
+def get_default_font(font_size):
     try:
         return ImageFont.load_default(size=font_size)
     except TypeError:
@@ -203,8 +141,7 @@ def get_custom_font(font_name, font_size):
 
 
 def process_single_image(uploaded_file, idx, bg_rgb, enable_watermark, logo_file):
-    """単一の画像を処理し、(ファイル名, JPEGバイナリ) を返してメモリを即時解放する"""
-    MAX_DIM = 1920  # フルHD基準サイズに縮小してメモリ領域を大幅削減
+    MAX_DIM = 1920
     
     image = Image.open(uploaded_file)
     image = ImageOps.exif_transpose(image)
@@ -239,13 +176,12 @@ def process_single_image(uploaded_file, idx, bg_rgb, enable_watermark, logo_file
         wm_t = st.session_state.get("wm_type", "テキスト")
         wm_txt = st.session_state.get("wm_text", "")
         s_ratio = st.session_state.get("size_ratio", 20)
-        font_n = st.session_state.get("selected_font_name", font_list[0])
         tc_hex = st.session_state.get("text_color_hex", "#FFFFFF")
         position = st.session_state.get("wm_position", "左下")
         
         if wm_t == "テキスト" and wm_txt:
             target_text_w = int(photo_w * (s_ratio / 100.0))
-            test_font = get_custom_font(font_n, 100)
+            test_font = get_default_font(100)
             try:
                 bbox = draw.textbbox((0, 0), wm_txt, font=test_font)
                 initial_w = bbox[2] - bbox[0]
@@ -253,7 +189,7 @@ def process_single_image(uploaded_file, idx, bg_rgb, enable_watermark, logo_file
                 initial_w = 100
 
             font_size = max(10, int(100 * (target_text_w / initial_w))) if initial_w > 0 else 20
-            font = get_custom_font(font_n, font_size)
+            font = get_default_font(font_size)
 
             try:
                 bbox = draw.textbbox((0, 0), wm_txt, font=font)
@@ -333,7 +269,6 @@ if uploaded_files:
     st.success(f"{len(uploaded_files)} 枚の画像が選択されました")
     st.subheader("✨ 変換結果＆ダウンロード")
     
-    # 複数枚選択時のZIP作成（ストリーム書き込みで省メモリ化）
     if len(uploaded_files) > 1:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
@@ -356,7 +291,6 @@ if uploaded_files:
         )
         st.markdown("---")
 
-    # 個別表示＆ダウンロード（1枚ずつ順番に生成＆表示）
     for idx, uploaded_file in enumerate(uploaded_files):
         try:
             fname, bdata = process_single_image(uploaded_file, idx, bg_color_rgb, enable_wm, wm_logo_file)
