@@ -106,12 +106,10 @@ if enable_wm:
             curr_font = st.session_state.get("selected_font_name", font_list[0])
             font_idx = font_list.index(curr_font) if curr_font in font_list else 0
             selected_font_name = st.sidebar.selectbox("フォント (字体)", font_list, index=font_idx, key="selected_font_name")
-        # +-ボタン付き数値入力 (サイズ)
         size_ratio = st.sidebar.number_input("文字の大きさ (元画像幅の %)", min_value=5, max_value=95, step=1, key="size_ratio")
         text_color_hex = st.sidebar.color_picker("文字色", key="text_color_hex")
     else:
         wm_logo_file = st.sidebar.file_uploader("ロゴ画像をアップロード", type=["png", "jpg", "jpeg"])
-        # +-ボタン付き数値入力 (ロゴサイズ)
         size_ratio = st.sidebar.number_input("ロゴの大きさ (元画像幅の %)", min_value=5, max_value=90, step=1, key="size_ratio")
 
     pos_options = ["右下", "左下", "右上", "左上", "中央"]
@@ -120,7 +118,6 @@ if enable_wm:
     wm_position = st.sidebar.selectbox("配置位置", pos_options, index=pos_idx, key="wm_position")
     
     st.sidebar.markdown("**📍 位置・透明度の微調整**")
-    # +-ボタン付き数値入力 (左右・上下余白・不透明度)
     offset_x_pct = st.sidebar.number_input("左右余白 (写真幅の %)", min_value=0, max_value=45, step=1, key="offset_x_pct")
     offset_y_pct = st.sidebar.number_input("上下余白 (写真高の %)", min_value=0, max_value=45, step=1, key="offset_y_pct")
     wm_opacity = st.sidebar.number_input("不透明度 (%)", min_value=10, max_value=100, step=5, key="wm_opacity")
@@ -295,9 +292,7 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct,
 # ----------------------------------
 # メイン画面エリア
 # ----------------------------------
-st.subheader("🏷️ ハッシュタグ")
-tags_input = st.text_area("ハッシュタグを入力・編集", key="tags_input", height=80)
-
+# 1. 上段：画像選択エリア
 st.subheader("📁 画像を選択")
 uploaded_files = st.file_uploader(
     "iPhoneの写真ライブラリ等から画像を選択してください（複数可）", 
@@ -305,7 +300,13 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
+# 2. 中段：ハッシュタグエリア
+st.subheader("🏷️ ハッシュタグ")
+tags_input = st.text_area("ハッシュタグを入力・編集", key="tags_input", height=80)
+
+# 3. 下段：変換結果＆ダウンロードエリア
 if uploaded_files:
+    st.markdown("---")
     st.success(f"{len(uploaded_files)} 枚の画像が選択されました")
     st.info("💡 iPhoneで保存する場合：画像を長押しして「'写真' に追加」を選択するとカメラロールに直接保存できます。")
     st.subheader("✨ 変換結果＆ダウンロード")
