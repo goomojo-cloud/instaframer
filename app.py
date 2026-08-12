@@ -35,32 +35,35 @@ if enable_wm:
     
     if wm_type == "テキスト":
         wm_text = st.sidebar.text_input("テキスト内容", value="© My Photo")
-        size_ratio = st.sidebar.slider("文字の横幅割合 (正方形幅の %)", 10, 95, 30)
+        size_ratio = st.sidebar.slider("文字の横幅割合 (元画像幅の %)", 10, 95, 30)
         text_color_hex = st.sidebar.color_picker("文字色", "#FFFFFF")
     else:
         wm_logo_file = st.sidebar.file_uploader("ロゴ画像をアップロード", type=["png", "jpg", "jpeg"])
-        size_ratio = st.sidebar.slider("ロゴの横幅割合 (正方形幅の %)", 5, 90, 20)
+        size_ratio = st.sidebar.slider("ロゴの横幅割合 (元画像幅の %)", 5, 90, 20)
 
     wm_position = st.sidebar.selectbox("配置位置", ["右下", "左下", "右上", "左上", "中央"])
     wm_opacity = st.sidebar.slider("不透明度 (%)", 10, 100, 70)
 
 
-def apply_watermark(base_img, position, opacity_pct):
-    """画像にテキストまたはロゴのウォーターマークを重ねる処理"""
-    img_rgba = base_img.convert("RGBA")
+def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct):
+    """
+    正方形キャンバス上の『元画像（写真本体）領域』内にウォーターマークを配置する処理
+    photo_rect: (offset_x, offset_y, photo_w, photo_h)
+    """
+    offset_x, offset_y, photo_w, photo_h = photo_rect
+    
+    img_rgba = base_square_img.convert("RGBA")
     overlay = Image.new("RGBA", img_rgba.size, (255, 255, 255, 0))
     draw = ImageDraw.Draw(overlay)
     
-    img_w, img_h = img_rgba.size
     alpha = int(255 * (opacity_pct / 100))
-    margin = int(img_w * 0.03)  # 端からのマージン (3%)
+    # 元画像（写真）の端からのマージン (3%)
+    margin = int(min(photo_w, photo_h) * 0.03)
     
     if wm_type == "テキスト" and wm_text:
-        # 目標とするテキストの横幅（ピクセル）
-        target_text_w = int(img_w * (size_ratio / 100.0))
+        # 目標とするテキストの横幅（元画像幅に対する割合）
+        target_text_w = int(photo_w * (size_ratio / 100.0))
         
-        # 目標の横幅に合うフォントサイズを動的に計算
-        # 初期サイズを適当に設定し、描画サイズを見ながらスケール調整
         font_size = 100
         try:
             font = ImageFont.truetype("arial.ttf", font_size)
@@ -71,7 +74,6 @@ def apply_watermark(base_img, position, opacity_pct):
         initial_w = bbox[2] - bbox[0]
         
         if initial_w > 0:
-            # 比例計算で適切なフォントサイズを割り出す
             calculated_font_size = int(font_size * (target_text_w / initial_w))
             font_size = max(10, calculated_font_size)
             try:
@@ -79,67 +81,69 @@ def apply_watermark(base_img, position, opacity_pct):
             except OSError:
                 font = ImageFont.load_default()
 
-        # 決定したフォントサイズで正確なバウンディングボックスを取得
         bbox = draw.textbbox((0, 0), wm_text, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
         
-        # 配置位置計算
+        # 写真領域内の相対座標計算
         if position == "右下":
-            x = img_w - text_w - margin
-            y = img_h - text_h - margin
+            rel_x = photo_w - text_w - margin
+            rel_y = photo_h - text_h - margin
         elif position == "左下":
-            x = margin
-            y = img_h - text_h - margin
+            rel_x = margin
+            rel_y = photo_h - text_h - margin
         elif position == "右上":
-            x = img_w - text_w - margin
-            y = margin
+            rel_x = photo_w - text_w - margin
+            rel_y = margin
         elif position == "左上":
-            x = margin
-            y = margin
+            rel_x = margin
+            rel_y = margin
         else:  # 中央
-            x = (img_w - text_w) // 2
-            y = (img_h - text_h) // 2
+            rel_x = (photo_w - text_w) // 2
+            rel_y = (photo_h - text_h) // 2
+            
+        # 絶対座標に変換（写真のオフセットを加算）
+        abs_x = offset_x + rel_x
+        abs_y = offset_y + rel_y
             
         tc_clean = text_color_hex.lstrip('#')
         tc_rgb = tuple(int(tc_clean[i:i+2], 16) for i in (0, 2, 4))
         
-        draw.text((x, y), wm_text, font=font, fill=(tc_rgb[0], tc_rgb[1], tc_rgb[2], alpha))
+        draw.text((abs_x, abs_y), wm_text, font=font, fill=(tc_rgb[0], tc_rgb[1], tc_rgb[2], alpha))
         
     elif wm_type == "ロゴ画像" and wm_logo_file is not None:
         logo = Image.open(wm_logo_file).convert("RGBA")
         
-        # 目標幅に合わせてアスペクト比を維持してリサイズ
-        target_w = int(img_w * (size_ratio / 100.0))
+        target_w = int(photo_w * (size_ratio / 100.0))
         aspect = logo.height / logo.width
         target_h = int(target_w * aspect)
         logo = logo.resize((target_w, target_h), Image.Resampling.LANCZOS)
         
-        # 不透明度の適用
         r, g, b, a = logo.split()
         a = a.point(lambda p: int(p * (opacity_pct / 100)))
         logo = Image.merge("RGBA", (r, g, b, a))
         
-        # 配置位置計算
         if position == "右下":
-            x = img_w - target_w - margin
-            y = img_h - target_h - margin
+            rel_x = photo_w - target_w - margin
+            rel_y = photo_h - target_h - margin
         elif position == "左下":
-            x = margin
-            y = img_h - target_h - margin
+            rel_x = margin
+            rel_y = photo_h - target_h - margin
         elif position == "右上":
-            x = img_w - target_w - margin
-            y = margin
+            rel_x = photo_w - target_w - margin
+            rel_y = margin
         elif position == "左上":
-            x = margin
-            y = margin
+            rel_x = margin
+            rel_y = margin
         else:  # 中央
-            x = (img_w - target_w) // 2
-            y = (img_h - target_h) // 2
+            rel_x = (photo_w - target_w) // 2
+            rel_y = (photo_h - target_h) // 2
             
-        overlay.paste(logo, (x, y), logo)
+        abs_x = offset_x + rel_x
+        abs_y = offset_y + rel_y
+            
+        overlay.paste(logo, (abs_x, abs_y), logo)
 
-    # 重ね合わせ
     combined = Image.alpha_composite(img_rgba, overlay)
     return combined.convert("RGB")
 
@@ -171,18 +175,19 @@ if uploaded_files:
             if image.mode != "RGB":
                 image = image.convert("RGB")
                 
-            width, height = image.size
-            max_side = max(width, height)
+            photo_w, photo_h = image.size
+            max_side = max(photo_w, photo_h)
             
             # 正方形キャンバスの作成
             square_img = Image.new("RGB", (max_side, max_side), bg_color_rgb)
-            offset_x = (max_side - width) // 2
-            offset_y = (max_side - height) // 2
+            offset_x = (max_side - photo_w) // 2
+            offset_y = (max_side - photo_h) // 2
             square_img.paste(image, (offset_x, offset_y))
             
-            # ウォーターマーク処理の適用
+            # ウォーターマーク処理の適用（写真本体の範囲情報を渡す）
             if enable_wm:
-                square_img = apply_watermark(square_img, wm_position, wm_opacity)
+                photo_rect = (offset_x, offset_y, photo_w, photo_h)
+                square_img = apply_watermark_on_photo(square_img, photo_rect, wm_position, wm_opacity)
             
             # ブラウザダウンロード用バイト処理
             buf = io.BytesIO()
