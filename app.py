@@ -4,6 +4,7 @@ import io
 import urllib.request
 import os
 import urllib.parse
+import zipfile
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
 
@@ -56,12 +57,12 @@ DEFAULT_SETTINGS = {
     "wm_type": "テキスト",
     "wm_text": "© My Photo",
     "selected_font_name": font_list[0],
-    "size_ratio": 20,           # ご指定値: 20
-    "text_color_hex": "#FFFFFF", # ご指定値: 白 (#FFFFFF)
-    "wm_position": "左下",      # ご指定値: 左下
-    "offset_x_pct": 3,          # ご指定値: 3
-    "offset_y_pct": 3,          # ご指定値: 3
-    "wm_opacity": 70            # ご指定値: 70
+    "size_ratio": 20,
+    "text_color_hex": "#FFFFFF",
+    "wm_position": "左下",
+    "offset_x_pct": 3,
+    "offset_y_pct": 3,
+    "wm_opacity": 70
 }
 
 # URLパラメータを取得してセッション状態を復元
@@ -301,8 +302,10 @@ tags_input = st.text_area("ハッシュタグを入力・編集", key="tags_inpu
 if uploaded_files:
     st.markdown("---")
     st.success(f"{len(uploaded_files)} 枚の画像が選択されました")
-    st.info("💡 iPhoneで保存する場合：画像を長押しして「'写真' に追加」を選択するとカメラロールに直接保存できます。")
+    st.info("💡 iPhoneで個別に保存する場合：画像を長押しして「'写真' に追加」を選択するとカメラロールに直接保存できます。")
     st.subheader("✨ 変換結果＆ダウンロード")
+    
+    processed_images = []
     
     for idx, uploaded_file in enumerate(uploaded_files):
         try:
@@ -334,17 +337,39 @@ if uploaded_files:
             square_img.save(buf, format="JPEG", quality=95)
             byte_im = buf.getvalue()
             
-            cols = st.columns([1, 2])
-            with cols[0]:
-                st.image(square_img, use_container_width=True)
-            with cols[1]:
-                file_name = f"sq_{uploaded_file.name.split('.')[0]}.jpg"
-                st.download_button(
-                    label=f"💾 {file_name} を保存",
-                    data=byte_im,
-                    file_name=file_name,
-                    mime="image/jpeg",
-                    key=f"dl_{idx}"
-                )
+            file_name = f"sq_{uploaded_file.name.split('.')[0]}.jpg"
+            processed_images.append((file_name, byte_im, square_img))
+            
         except Exception as e:
             st.error(f"エラーが発生しました ({uploaded_file.name}): {e}")
+
+    # 複数枚選択されている場合に全画像ZIPダウンロードボタンを表示
+    if len(processed_images) > 1:
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for file_name, byte_im, _ in processed_images:
+                zip_file.writestr(file_name, byte_im)
+        
+        st.download_button(
+            label=f"📦 全 {len(processed_images)} 枚をまとめてダウンロード (.zip)",
+            data=zip_buffer.getvalue(),
+            file_name="instaframer_images.zip",
+            mime="application/zip",
+            type="primary",
+            use_container_width=True
+        )
+        st.markdown("---")
+
+    # 個別プレビュー＆ダウンロード
+    for idx, (file_name, byte_im, square_img) in enumerate(processed_images):
+        cols = st.columns([1, 2])
+        with cols[0]:
+            st.image(square_img, use_container_width=True)
+        with cols[1]:
+            st.download_button(
+                label=f"💾 {file_name} を保存",
+                data=byte_im,
+                file_name=file_name,
+                mime="image/jpeg",
+                key=f"dl_{idx}"
+            )
