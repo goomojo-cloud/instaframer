@@ -246,8 +246,9 @@ def process_single_image(uploaded_file, idx, bg_rgb, enable_watermark, logo_file
     del square_img
     gc.collect()
     
+    # 💡 ファイル名を「元ファイル名_sq_連番.jpg」形式に変更
     raw_name = os.path.splitext(uploaded_file.name)[0]
-    file_name = f"sq_{idx+1}_{raw_name}.jpg"
+    file_name = f"{raw_name}_sq_{idx+1}.jpg"
     return file_name, byte_im
 
 
@@ -264,7 +265,6 @@ uploaded_files = st.file_uploader(
 st.subheader("🏷️ ハッシュタグ")
 tags_input = st.text_area("ハッシュタグを入力・編集", key="tags_input", height=80)
 
-# 💡 ハッシュタグを一気にクリップボードへコピーする機能を追加
 if tags_input.strip():
     escaped_tags = tags_input.replace("`", "'")
     st.components.v1.html(
