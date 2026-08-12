@@ -3,11 +3,10 @@ from PIL import Image, ImageOps, ImageDraw, ImageFont
 import io
 import os
 import zipfile
-import traceback
+import gc
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
 
-# エラーハンドリング用ラップ
 try:
     import requests
 except ImportError:
@@ -17,7 +16,7 @@ st.title("📷 InstaFramer")
 st.caption("写真を枠付き正方形に変換 ＋ ウォーターマーク追加")
 
 # ----------------------------------
-# フォント自動ダウンロード＆管理機能（安全設計）
+# フォント自動ダウンロード＆管理機能
 # ----------------------------------
 FONTS_DIR = "fonts"
 os.makedirs(FONTS_DIR, exist_ok=True)
@@ -56,7 +55,7 @@ def download_fonts():
 
 try:
     available_fonts = download_fonts()
-except Exception as e:
+except Exception:
     available_fonts = {}
 
 font_list = list(available_fonts.keys()) if available_fonts else ["デフォルトフォント"]
@@ -79,7 +78,6 @@ DEFAULT_SETTINGS = {
     "wm_opacity": 70
 }
 
-# URLパラメータを取得してセッション状態を復元
 params = st.query_params
 
 if "init_loaded" not in st.session_state:
@@ -113,7 +111,6 @@ if "init_loaded" not in st.session_state:
     if "tags" in params:
         st.session_state["tags_input"] = params.get("tags")
 
-# 初期値補完
 for k, v in DEFAULT_SETTINGS.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -329,11 +326,16 @@ if uploaded_files:
     st.subheader("✨ 変換結果＆ダウンロード")
     
     processed_images = []
+    MAX_DIM = 2048  # メモリ対策：長辺上限を2048pxに制限
     
     for idx, uploaded_file in enumerate(uploaded_files):
         try:
             image = Image.open(uploaded_file)
             image = ImageOps.exif_transpose(image)
+            
+            # メモリ節約のためリサイズ処理
+            if max(image.size) > MAX_DIM:
+                image.thumbnail((MAX_DIM, MAX_DIM), Image.Resampling.LANCZOS)
             
             if image.mode != "RGB":
                 image = image.convert("RGB")
@@ -358,15 +360,21 @@ if uploaded_files:
                 )
             
             buf = io.BytesIO()
-            square_img.save(buf, format="JPEG", quality=95)
+            square_img.save(buf, format="JPEG", quality=90, optimize=True)
             byte_im = buf.getvalue()
             
-            file_name = f"sq_{uploaded_file.name.split('.')[0]}.jpg"
+            raw_name = os.path.splitext(uploaded_file.name)[0]
+            file_name = f"sq_{idx+1}_{raw_name}.jpg"
             processed_images.append((file_name, byte_im, square_img))
+            
+            # 使用済み変数解放
+            del image
+            gc.collect()
             
         except Exception as e:
             st.error(f"エラーが発生しました ({uploaded_file.name}): {e}")
 
+    # ZIP一括ダウンロード処理（メモリ軽量化）
     if len(processed_images) > 1:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
@@ -383,6 +391,7 @@ if uploaded_files:
         )
         st.markdown("---")
 
+    # 個別プレビュー＆ダウンロード
     for idx, (file_name, byte_im, square_img) in enumerate(processed_images):
         cols = st.columns([1, 2])
         with cols[0]:
