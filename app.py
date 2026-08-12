@@ -27,7 +27,7 @@ wm_text = ""
 wm_logo_file = None
 wm_position = "右下"
 wm_opacity = 50
-font_size_ratio = 5
+size_ratio = 30
 text_color_hex = "#FFFFFF"
 
 if enable_wm:
@@ -35,11 +35,11 @@ if enable_wm:
     
     if wm_type == "テキスト":
         wm_text = st.sidebar.text_input("テキスト内容", value="© My Photo")
-        font_size_ratio = st.sidebar.slider("文字サイズ (画像に対する割合 %)", 2, 15, 5)
+        size_ratio = st.sidebar.slider("文字の横幅割合 (正方形幅の %)", 10, 95, 30)
         text_color_hex = st.sidebar.color_picker("文字色", "#FFFFFF")
     else:
         wm_logo_file = st.sidebar.file_uploader("ロゴ画像をアップロード", type=["png", "jpg", "jpeg"])
-        font_size_ratio = st.sidebar.slider("ロゴサイズ (画像に対する割合 %)", 5, 40, 15)
+        size_ratio = st.sidebar.slider("ロゴの横幅割合 (正方形幅の %)", 5, 90, 20)
 
     wm_position = st.sidebar.selectbox("配置位置", ["右下", "左下", "右上", "左上", "中央"])
     wm_opacity = st.sidebar.slider("不透明度 (%)", 10, 100, 70)
@@ -47,30 +47,44 @@ if enable_wm:
 
 def apply_watermark(base_img, position, opacity_pct):
     """画像にテキストまたはロゴのウォーターマークを重ねる処理"""
-    # RGBAモードで描画用レイヤーを作成
     img_rgba = base_img.convert("RGBA")
     overlay = Image.new("RGBA", img_rgba.size, (255, 255, 255, 0))
     draw = ImageDraw.Draw(overlay)
     
     img_w, img_h = img_rgba.size
     alpha = int(255 * (opacity_pct / 100))
-    margin = int(min(img_w, img_h) * 0.03)  # 端からのマージン (3%)
+    margin = int(img_w * 0.03)  # 端からのマージン (3%)
     
     if wm_type == "テキスト" and wm_text:
-        # 文字サイズの計算
-        font_size = max(12, int(img_w * (font_size_ratio / 100)))
+        # 目標とするテキストの横幅（ピクセル）
+        target_text_w = int(img_w * (size_ratio / 100.0))
+        
+        # 目標の横幅に合うフォントサイズを動的に計算
+        # 初期サイズを適当に設定し、描画サイズを見ながらスケール調整
+        font_size = 100
         try:
-            # デフォルトフォント
             font = ImageFont.truetype("arial.ttf", font_size)
         except OSError:
             font = ImageFont.load_default()
             
-        # テキストバウンディングボックスの取得
+        bbox = draw.textbbox((0, 0), wm_text, font=font)
+        initial_w = bbox[2] - bbox[0]
+        
+        if initial_w > 0:
+            # 比例計算で適切なフォントサイズを割り出す
+            calculated_font_size = int(font_size * (target_text_w / initial_w))
+            font_size = max(10, calculated_font_size)
+            try:
+                font = ImageFont.truetype("arial.ttf", font_size)
+            except OSError:
+                font = ImageFont.load_default()
+
+        # 決定したフォントサイズで正確なバウンディングボックスを取得
         bbox = draw.textbbox((0, 0), wm_text, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
         
-        # 位置計算
+        # 配置位置計算
         if position == "右下":
             x = img_w - text_w - margin
             y = img_h - text_h - margin
@@ -95,8 +109,8 @@ def apply_watermark(base_img, position, opacity_pct):
     elif wm_type == "ロゴ画像" and wm_logo_file is not None:
         logo = Image.open(wm_logo_file).convert("RGBA")
         
-        # ロゴサイズ調整
-        target_w = int(img_w * (font_size_ratio / 100))
+        # 目標幅に合わせてアスペクト比を維持してリサイズ
+        target_w = int(img_w * (size_ratio / 100.0))
         aspect = logo.height / logo.width
         target_h = int(target_w * aspect)
         logo = logo.resize((target_w, target_h), Image.Resampling.LANCZOS)
@@ -106,7 +120,7 @@ def apply_watermark(base_img, position, opacity_pct):
         a = a.point(lambda p: int(p * (opacity_pct / 100)))
         logo = Image.merge("RGBA", (r, g, b, a))
         
-        # 位置計算
+        # 配置位置計算
         if position == "右下":
             x = img_w - target_w - margin
             y = img_h - target_h - margin
