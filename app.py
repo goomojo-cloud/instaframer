@@ -79,7 +79,7 @@ if "restore_data" in query_params:
             if k in DEFAULT_SETTINGS:
                 st.session_state[k] = v
         st.query_params.clear()
-        st.success("💾 前回保存した設定（ハッシュタグ含む）を読み込みました！")
+        st.success("💾 前回保存した設定を読み込みました！")
     except Exception:
         pass
 
@@ -106,28 +106,30 @@ if enable_wm:
             curr_font = st.session_state.get("selected_font_name", font_list[0])
             font_idx = font_list.index(curr_font) if curr_font in font_list else 0
             selected_font_name = st.sidebar.selectbox("フォント (字体)", font_list, index=font_idx, key="selected_font_name")
-        size_ratio = st.sidebar.slider("文字の横幅割合 (元画像幅の %)", 5, 95, key="size_ratio")
+        # +-ボタン付き数値入力 (サイズ)
+        size_ratio = st.sidebar.number_input("文字の大きさ (元画像幅の %)", min_value=5, max_value=95, step=1, key="size_ratio")
         text_color_hex = st.sidebar.color_picker("文字色", key="text_color_hex")
     else:
         wm_logo_file = st.sidebar.file_uploader("ロゴ画像をアップロード", type=["png", "jpg", "jpeg"])
-        size_ratio = st.sidebar.slider("ロゴの横幅割合 (元画像幅の %)", 5, 90, key="size_ratio")
+        # +-ボタン付き数値入力 (ロゴサイズ)
+        size_ratio = st.sidebar.number_input("ロゴの大きさ (元画像幅の %)", min_value=5, max_value=90, step=1, key="size_ratio")
 
     pos_options = ["右下", "左下", "右上", "左上", "中央"]
     curr_pos = st.session_state.get("wm_position", "右下")
     pos_idx = pos_options.index(curr_pos) if curr_pos in pos_options else 0
     wm_position = st.sidebar.selectbox("配置位置", pos_options, index=pos_idx, key="wm_position")
     
-    st.sidebar.markdown("**📍 位置の微調整**")
-    offset_x_pct = st.sidebar.slider("左右の余白 (写真幅の %)", 0, 30, key="offset_x_pct")
-    offset_y_pct = st.sidebar.slider("上下の余白 (写真高の %)", 0, 30, key="offset_y_pct")
-
-    wm_opacity = st.sidebar.slider("不透明度 (%)", 10, 100, key="wm_opacity")
+    st.sidebar.markdown("**📍 位置・透明度の微調整**")
+    # +-ボタン付き数値入力 (左右・上下余白・不透明度)
+    offset_x_pct = st.sidebar.number_input("左右余白 (写真幅の %)", min_value=0, max_value=45, step=1, key="offset_x_pct")
+    offset_y_pct = st.sidebar.number_input("上下余白 (写真高の %)", min_value=0, max_value=45, step=1, key="offset_y_pct")
+    wm_opacity = st.sidebar.number_input("不透明度 (%)", min_value=10, max_value=100, step=5, key="wm_opacity")
 
 # --- 保存 / リセット ボタンエリア ---
 st.sidebar.markdown("---")
 col_btn1, col_btn2 = st.sidebar.columns(2)
 
-# 保存ボタン処理（ハッシュタグ項目も追加）
+# 保存ボタン処理
 if col_btn1.button("💾 設定を保存", use_container_width=True):
     current_config = {
         "tags_input": st.session_state.get("tags_input", "#instagram #photo #japan"),
@@ -147,7 +149,7 @@ if col_btn1.button("💾 設定を保存", use_container_width=True):
     js_code = f"""
         <script>
             localStorage.setItem('instaframer_config', '{json_str}');
-            alert('ハッシュタグを含む現在の設定をブラウザに保存しました！次回アクセス時も引き継がれます。');
+            alert('現在の設定をブラウザに保存しました！次回アクセス時も引き継がれます。');
         </script>
     """
     components.html(js_code, height=0)
