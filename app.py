@@ -1,8 +1,10 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image, ImageOps, ImageDraw, ImageFont
 import io
 import urllib.request
 import os
+import json
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
 
@@ -15,7 +17,6 @@ st.caption("写真を枠付き正方形に変換 ＋ ウォーターマーク追
 FONTS_DIR = "fonts"
 os.makedirs(FONTS_DIR, exist_ok=True)
 
-# jsDelivr CDN経由で安定取得できるGoogle Fonts一覧（計7種類）
 FONT_URLS = {
     "ゴシック体 (Zen Kaku Gothic)": "https://cdn.jsdelivr.net/fontsource/fonts/zen-kaku-gothic-new@latest/japanese-700-normal.ttf",
     "明朝体 (Shippori Mincho)": "https://cdn.jsdelivr.net/fontsource/fonts/shippori-mincho@latest/japanese-700-normal.ttf",
@@ -28,14 +29,12 @@ FONT_URLS = {
 
 @st.cache_data
 def download_fonts():
-    """フォントファイルをローカルにキャッシュダウンロード"""
     font_paths = {}
     for font_name, url in FONT_URLS.items():
         filename = f"{font_name.split()[0]}.ttf"
         local_path = os.path.join(FONTS_DIR, filename)
         if not os.path.exists(local_path):
             try:
-                # ユーザーエージェントを設定してダウンロードエラーを防止
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req) as response, open(local_path, 'wb') as out_file:
                     out_file.write(response.read())
@@ -46,12 +45,48 @@ def download_fonts():
     return font_paths
 
 available_fonts = download_fonts()
+font_list = list(available_fonts.keys()) if available_fonts else ["デフォルト"]
+
+# ----------------------------------
+# セッション状態＆初期値の管理
+# ----------------------------------
+DEFAULT_SETTINGS = {
+    "bg_color_hex": "#FFFFFF",
+    "enable_wm": False,
+    "wm_type": "テキスト",
+    "wm_text": "© My Photo",
+    "selected_font_name": font_list[0],
+    "size_ratio": 30,
+    "text_color_hex": "#FFFFFF",
+    "wm_position": "右下",
+    "offset_x_pct": 3,
+    "offset_y_pct": 3,
+    "wm_opacity": 70
+}
+
+# 初回アクセス時にデフォルト値をセット
+for key, val in DEFAULT_SETTINGS.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
+
+# クエリパラメータによるローカルストレージからの設定復元処理
+query_params = st.query_params
+if "restore_data" in query_params:
+    try:
+        restored = json.loads(query_params["restore_data"])
+        for k, v in restored.items():
+            if k in DEFAULT_SETTINGS:
+                st.session_state[k] = v
+        st.query_params.clear()
+        st.success("💾 前回保存した設定を読み込みました！")
+    except Exception:
+        pass
 
 # ----------------------------------
 # サイドバー設定エリア
 # ----------------------------------
 st.sidebar.header("🎨 アスペクト＆背景設定")
-bg_color_hex = st.sidebar.color_picker("背景色を選択", "#FFFFFF")
+bg_color_hex = st.sidebar.color_picker("背景色を選択", key="bg_color_hex")
 
 bg_color_hex_clean = bg_color_hex.lstrip('#')
 bg_color_rgb = tuple(int(bg_color_hex_clean[i:i+2], 16) for i in (0, 2, 4))
@@ -59,44 +94,94 @@ bg_color_rgb = tuple(int(bg_color_hex_clean[i:i+2], 16) for i in (0, 2, 4))
 # --- ウォーターマーク設定 ---
 st.sidebar.markdown("---")
 st.sidebar.header("💧 ウォーターマーク設定")
-enable_wm = st.sidebar.checkbox("ウォーターマークを有効化", value=False)
-
-wm_type = "テキスト"
-wm_text = ""
-wm_logo_file = None
-wm_position = "右下"
-wm_opacity = 50
-size_ratio = 30
-text_color_hex = "#FFFFFF"
-selected_font_name = list(available_fonts.keys())[0] if available_fonts else None
-offset_x_pct = 3
-offset_y_pct = 3
+enable_wm = st.sidebar.checkbox("ウォーターマークを有効化", key="enable_wm")
 
 if enable_wm:
-    wm_type = st.sidebar.radio("種類", ["テキスト", "ロゴ画像"])
+    wm_type = st.sidebar.radio("種類", ["テキスト", "ロゴ画像"], key="wm_type")
     
     if wm_type == "テキスト":
-        wm_text = st.sidebar.text_input("テキスト内容", value="© My Photo")
+        wm_text = st.sidebar.text_input("テキスト内容", key="wm_text")
         if available_fonts:
-            selected_font_name = st.sidebar.selectbox("フォント (字体)", list(available_fonts.keys()))
-        size_ratio = st.sidebar.slider("文字の横幅割合 (元画像幅の %)", 5, 95, 30)
-        text_color_hex = st.sidebar.color_picker("文字色", "#FFFFFF")
+            # セッション値が選択肢内に存在するか確認
+            curr_font = st.session_state.get("selected_font_name", font_list[0])
+            font_idx = font_list.index(curr_font) if curr_font in font_list else 0
+            selected_font_name = st.sidebar.selectbox("フォント (字体)", font_list, index=font_idx, key="selected_font_name")
+        size_ratio = st.sidebar.slider("文字の横幅割合 (元画像幅の %)", 5, 95, key="size_ratio")
+        text_color_hex = st.sidebar.color_picker("文字色", key="text_color_hex")
     else:
         wm_logo_file = st.sidebar.file_uploader("ロゴ画像をアップロード", type=["png", "jpg", "jpeg"])
-        size_ratio = st.sidebar.slider("ロゴの横幅割合 (元画像幅の %)", 5, 90, 20)
+        size_ratio = st.sidebar.slider("ロゴの横幅割合 (元画像幅の %)", 5, 90, key="size_ratio")
 
-    wm_position = st.sidebar.selectbox("配置位置", ["右下", "左下", "右上", "左上", "中央"])
+    pos_options = ["右下", "左下", "右上", "左上", "中央"]
+    curr_pos = st.session_state.get("wm_position", "右下")
+    pos_idx = pos_options.index(curr_pos) if curr_pos in pos_options else 0
+    wm_position = st.sidebar.selectbox("配置位置", pos_options, index=pos_idx, key="wm_position")
     
-    # 微調整オプション
     st.sidebar.markdown("**📍 位置の微調整**")
-    offset_x_pct = st.sidebar.slider("左右の余白 (写真幅の %)", 0, 30, 3)
-    offset_y_pct = st.sidebar.slider("上下の余白 (写真高の %)", 0, 30, 3)
+    offset_x_pct = st.sidebar.slider("左右の余白 (写真幅の %)", 0, 30, key="offset_x_pct")
+    offset_y_pct = st.sidebar.slider("上下の余白 (写真高の %)", 0, 30, key="offset_y_pct")
 
-    wm_opacity = st.sidebar.slider("不透明度 (%)", 10, 100, 70)
+    wm_opacity = st.sidebar.slider("不透明度 (%)", 10, 100, key="wm_opacity")
+
+# --- 保存 / リセット ボタンエリア ---
+st.sidebar.markdown("---")
+col_btn1, col_btn2 = st.sidebar.columns(2)
+
+# 保存ボタン処理（JavaScript経由でLocalStorageへ書き込み）
+if col_btn1.button("💾 設定を保存", use_container_width=True):
+    current_config = {
+        "bg_color_hex": st.session_state.bg_color_hex,
+        "enable_wm": st.session_state.enable_wm,
+        "wm_type": st.session_state.get("wm_type", "テキスト"),
+        "wm_text": st.session_state.get("wm_text", "© My Photo"),
+        "selected_font_name": st.session_state.get("selected_font_name", font_list[0]),
+        "size_ratio": st.session_state.get("size_ratio", 30),
+        "text_color_hex": st.session_state.get("text_color_hex", "#FFFFFF"),
+        "wm_position": st.session_state.get("wm_position", "右下"),
+        "offset_x_pct": st.session_state.get("offset_x_pct", 3),
+        "offset_y_pct": st.session_state.get("offset_y_pct", 3),
+        "wm_opacity": st.session_state.get("wm_opacity", 70)
+    }
+    json_str = json.dumps(current_config)
+    js_code = f"""
+        <script>
+            localStorage.setItem('instaframer_config', '{json_str}');
+            alert('現在の設定をブラウザに保存しました！次回アクセス時もこの設定が引き継がれます。');
+        </script>
+    """
+    components.html(js_code, height=0)
+
+# リセットボタン処理
+if col_btn2.button("🔄 リセット", use_container_width=True):
+    js_code = """
+        <script>
+            localStorage.removeItem('instaframer_config');
+            window.location.href = window.location.pathname;
+        </script>
+    """
+    for k, v in DEFAULT_SETTINGS.items():
+        st.session_state[k] = v
+    components.html(js_code, height=0)
+
+# アプリ起動時にLocalStorageから設定を自動ロードするJSスクリプト
+if "loaded_from_storage" not in st.session_state:
+    st.session_state["loaded_from_storage"] = True
+    load_js = """
+        <script>
+            const savedConfig = localStorage.getItem('instaframer_config');
+            if (savedConfig) {
+                const url = new URL(window.location.href);
+                if (!url.searchParams.has('restore_data')) {
+                    url.searchParams.set('restore_data', savedConfig);
+                    window.location.href = url.toString();
+                }
+            }
+        </script>
+    """
+    components.html(load_js, height=0)
 
 
 def get_custom_font(font_name, font_size):
-    """選択されたフォントのImageFontオブジェクトを取得"""
     font_path = available_fonts.get(font_name) if available_fonts else None
     if font_path and os.path.exists(font_path):
         try:
@@ -107,7 +192,6 @@ def get_custom_font(font_name, font_size):
 
 
 def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct, off_x_pct, off_y_pct):
-    """正方形キャンバス上の『元画像（写真本体）領域』内にウォーターマークを配置"""
     offset_x, offset_y, photo_w, photo_h = photo_rect
     
     img_rgba = base_square_img.convert("RGBA")
@@ -115,32 +199,35 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct,
     draw = ImageDraw.Draw(overlay)
     
     alpha = int(255 * (opacity_pct / 100))
-    
-    # ユーザー指定の微調整マージン（ピクセル換算）
     margin_x = int(photo_w * (off_x_pct / 100.0))
     margin_y = int(photo_h * (off_y_pct / 100.0))
     
-    if wm_type == "テキスト" and wm_text:
-        target_text_w = int(photo_w * (size_ratio / 100.0))
+    wm_t = st.session_state.get("wm_type", "テキスト")
+    wm_txt = st.session_state.get("wm_text", "")
+    s_ratio = st.session_state.get("size_ratio", 30)
+    font_n = st.session_state.get("selected_font_name", font_list[0])
+    tc_hex = st.session_state.get("text_color_hex", "#FFFFFF")
+    
+    if wm_t == "テキスト" and wm_txt:
+        target_text_w = int(photo_w * (s_ratio / 100.0))
         
         test_font_size = 100
-        test_font = get_custom_font(selected_font_name, test_font_size)
+        test_font = get_custom_font(font_n, test_font_size)
         
-        bbox = draw.textbbox((0, 0), wm_text, font=test_font)
+        bbox = draw.textbbox((0, 0), wm_txt, font=test_font)
         initial_w = bbox[2] - bbox[0]
         
         if initial_w > 0:
             calculated_font_size = int(test_font_size * (target_text_w / initial_w))
             font_size = max(10, calculated_font_size)
-            font = get_custom_font(selected_font_name, font_size)
+            font = get_custom_font(font_n, font_size)
         else:
             font = test_font
 
-        bbox = draw.textbbox((0, 0), wm_text, font=font)
+        bbox = draw.textbbox((0, 0), wm_txt, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
         
-        # 写真領域内の相対位置計算（微調整マージン適用）
         if position == "右下":
             rel_x = photo_w - text_w - margin_x
             rel_y = photo_h - text_h - margin_y
@@ -160,15 +247,15 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct,
         abs_x = offset_x + rel_x
         abs_y = offset_y + rel_y
             
-        tc_clean = text_color_hex.lstrip('#')
+        tc_clean = tc_hex.lstrip('#')
         tc_rgb = tuple(int(tc_clean[i:i+2], 16) for i in (0, 2, 4))
         
-        draw.text((abs_x, abs_y), wm_text, font=font, fill=(tc_rgb[0], tc_rgb[1], tc_rgb[2], alpha))
+        draw.text((abs_x, abs_y), wm_txt, font=font, fill=(tc_rgb[0], tc_rgb[1], tc_rgb[2], alpha))
         
-    elif wm_type == "ロゴ画像" and wm_logo_file is not None:
+    elif wm_t == "ロゴ画像" and 'wm_logo_file' in globals() and wm_logo_file is not None:
         logo = Image.open(wm_logo_file).convert("RGBA")
         
-        target_w = int(photo_w * (size_ratio / 100.0))
+        target_w = int(photo_w * (s_ratio / 100.0))
         aspect = logo.height / logo.width
         target_h = int(target_w * aspect)
         logo = logo.resize((target_w, target_h), Image.Resampling.LANCZOS)
@@ -240,7 +327,11 @@ if uploaded_files:
             if enable_wm:
                 photo_rect = (offset_x, offset_y, photo_w, photo_h)
                 square_img = apply_watermark_on_photo(
-                    square_img, photo_rect, wm_position, wm_opacity, offset_x_pct, offset_y_pct
+                    square_img, photo_rect, 
+                    st.session_state.get("wm_position", "右下"), 
+                    st.session_state.get("wm_opacity", 70), 
+                    st.session_state.get("offset_x_pct", 3), 
+                    st.session_state.get("offset_y_pct", 3)
                 )
             
             buf = io.BytesIO()
