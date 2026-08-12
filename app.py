@@ -264,6 +264,45 @@ uploaded_files = st.file_uploader(
 st.subheader("🏷️ ハッシュタグ")
 tags_input = st.text_area("ハッシュタグを入力・編集", key="tags_input", height=80)
 
+# 💡 ハッシュタグを一気にクリップボードへコピーする機能を追加
+if tags_input.strip():
+    escaped_tags = tags_input.replace("`", "'")
+    st.components.v1.html(
+        f"""
+        <div style="margin-top: -10px; margin-bottom: 10px;">
+            <button id="copyBtn" onclick="copyHashtags()" style="
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                font-size: 14px;
+                font-weight: bold;
+                border-radius: 6px;
+                cursor: pointer;
+                width: 100%;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            ">📋 ハッシュタグを一気にコピー</button>
+        </div>
+        <script>
+        function copyHashtags() {{
+            const text = `{escaped_tags}`;
+            navigator.clipboard.writeText(text).then(function() {{
+                const btn = document.getElementById('copyBtn');
+                btn.innerText = '✅ コピーしました！';
+                btn.style.backgroundColor = '#2E7D32';
+                setTimeout(() => {{
+                    btn.innerText = '📋 ハッシュタグを一気にコピー';
+                    btn.style.backgroundColor = '#4CAF50';
+                }}, 2000);
+            }}).catch(function(err) {{
+                alert('コピーに失敗しました: ' + err);
+            }});
+        }}
+        </script>
+        """,
+        height=45
+    )
+
 if uploaded_files:
     st.markdown("---")
     st.success(f"{len(uploaded_files)} 枚の画像が選択されました")
