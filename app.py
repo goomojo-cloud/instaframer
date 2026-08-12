@@ -79,9 +79,34 @@ if "restore_data" in query_params:
             if k in DEFAULT_SETTINGS:
                 st.session_state[k] = v
         st.query_params.clear()
-        st.success("💾 前回保存した設定を読み込みました！")
+        st.toast("💾 前回保存した設定を読み込みました！")
     except Exception:
         pass
+
+# ----------------------------------
+# 自動読み込み用JS (Parent Window 連携)
+# ----------------------------------
+if "has_checked_storage" not in st.session_state:
+    st.session_state["has_checked_storage"] = True
+    auto_load_js = """
+        <script>
+            setTimeout(function() {
+                try {
+                    const savedConfig = window.parent.localStorage.getItem('instaframer_config') || window.localStorage.getItem('instaframer_config');
+                    if (savedConfig) {
+                        const parentUrl = new URL(window.parent.location.href);
+                        if (!parentUrl.searchParams.has('restore_data')) {
+                            parentUrl.searchParams.set('restore_data', savedConfig);
+                            window.parent.location.href = parentUrl.toString();
+                        }
+                    }
+                } catch (e) {
+                    console.log(e);
+                }
+            }, 300);
+        </script>
+    """
+    components.html(auto_load_js, height=0)
 
 # ----------------------------------
 # サイドバー設定エリア
@@ -145,8 +170,13 @@ if col_btn1.button("💾 設定を保存", use_container_width=True):
     json_str = json.dumps(current_config)
     js_code = f"""
         <script>
-            localStorage.setItem('instaframer_config', '{json_str}');
-            alert('現在の設定をブラウザに保存しました！次回アクセス時も引き継がれます。');
+            try {{
+                window.parent.localStorage.setItem('instaframer_config', '{json_str}');
+                window.localStorage.setItem('instaframer_config', '{json_str}');
+                alert('現在の設定をブラウザに保存しました！次回アクセス時も引き継がれます。');
+            }} catch(e) {{
+                alert('保存処理でエラーが発生しました');
+            }}
         </script>
     """
     components.html(js_code, height=0)
@@ -155,30 +185,18 @@ if col_btn1.button("💾 設定を保存", use_container_width=True):
 if col_btn2.button("🔄 リセット", use_container_width=True):
     js_code = """
         <script>
-            localStorage.removeItem('instaframer_config');
-            window.location.href = window.location.pathname;
+            try {
+                window.parent.localStorage.removeItem('instaframer_config');
+                window.localStorage.removeItem('instaframer_config');
+                window.parent.location.href = window.parent.location.pathname;
+            } catch(e) {
+                window.location.reload();
+            }
         </script>
     """
     for k, v in DEFAULT_SETTINGS.items():
         st.session_state[k] = v
     components.html(js_code, height=0)
-
-# アプリ起動時にLocalStorageから設定を自動ロードするJSスクリプト
-if "loaded_from_storage" not in st.session_state:
-    st.session_state["loaded_from_storage"] = True
-    load_js = """
-        <script>
-            const savedConfig = localStorage.getItem('instaframer_config');
-            if (savedConfig) {
-                const url = new URL(window.location.href);
-                if (!url.searchParams.has('restore_data')) {
-                    url.searchParams.set('restore_data', savedConfig);
-                    window.location.href = url.toString();
-                }
-            }
-        </script>
-    """
-    components.html(load_js, height=0)
 
 
 def get_custom_font(font_name, font_size):
