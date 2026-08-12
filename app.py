@@ -303,7 +303,9 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct,
         overlay.paste(logo, (abs_x, abs_y), logo)
 
     combined = Image.alpha_composite(img_rgba, overlay)
-    return combined.convert("RGB")
+    res = combined.convert("RGB")
+    del img_rgba, overlay
+    return res
 
 
 # ----------------------------------
@@ -325,15 +327,14 @@ if uploaded_files:
     st.info("💡 iPhoneで個別に保存する場合：画像を長押しして「'写真' に追加」を選択するとカメラロールに直接保存できます。")
     st.subheader("✨ 変換結果＆ダウンロード")
     
-    processed_images = []
-    MAX_DIM = 2048  # メモリ対策：長辺上限を2048pxに制限
+    processed_files = []  # (filename, byte_data) のみ保持
+    MAX_DIM = 2048
     
     for idx, uploaded_file in enumerate(uploaded_files):
         try:
             image = Image.open(uploaded_file)
             image = ImageOps.exif_transpose(image)
             
-            # メモリ節約のためリサイズ処理
             if max(image.size) > MAX_DIM:
                 image.thumbnail((MAX_DIM, MAX_DIM), Image.Resampling.LANCZOS)
             
@@ -347,6 +348,7 @@ if uploaded_files:
             offset_x = (max_side - photo_w) // 2
             offset_y = (max_side - photo_h) // 2
             square_img.paste(image, (offset_x, offset_y))
+            del image
             
             if enable_wm:
                 photo_rect = (offset_x, offset_y, photo_w, photo_h)
@@ -363,26 +365,25 @@ if uploaded_files:
             square_img.save(buf, format="JPEG", quality=90, optimize=True)
             byte_im = buf.getvalue()
             
+            del square_img
+            gc.collect()
+            
             raw_name = os.path.splitext(uploaded_file.name)[0]
             file_name = f"sq_{idx+1}_{raw_name}.jpg"
-            processed_images.append((file_name, byte_im, square_img))
-            
-            # 使用済み変数解放
-            del image
-            gc.collect()
+            processed_files.append((file_name, byte_im))
             
         except Exception as e:
             st.error(f"エラーが発生しました ({uploaded_file.name}): {e}")
 
-    # ZIP一括ダウンロード処理（メモリ軽量化）
-    if len(processed_images) > 1:
+    # ZIP一括ダウンロード処理
+    if len(processed_files) > 1:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            for file_name, byte_im, _ in processed_images:
+            for file_name, byte_im in processed_files:
                 zip_file.writestr(file_name, byte_im)
         
         st.download_button(
-            label=f"📦 全 {len(processed_images)} 枚をまとめてダウンロード (.zip)",
+            label=f"📦 全 {len(processed_files)} 枚をまとめてダウンロード (.zip)",
             data=zip_buffer.getvalue(),
             file_name="instaframer_images.zip",
             mime="application/zip",
@@ -391,11 +392,11 @@ if uploaded_files:
         )
         st.markdown("---")
 
-    # 個別プレビュー＆ダウンロード
-    for idx, (file_name, byte_im, square_img) in enumerate(processed_images):
+    # 個別プレビュー＆ダウンロード (バイトデータから描画)
+    for idx, (file_name, byte_im) in enumerate(processed_files):
         cols = st.columns([1, 2])
         with cols[0]:
-            st.image(square_img, use_container_width=True)
+            st.image(byte_im, use_container_width=True)
         with cols[1]:
             st.download_button(
                 label=f"💾 {file_name} を保存",
