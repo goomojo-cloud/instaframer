@@ -51,6 +51,7 @@ font_list = list(available_fonts.keys()) if available_fonts else ["デフォル�
 # セッション状態＆初期値の管理
 # ----------------------------------
 DEFAULT_SETTINGS = {
+    "tags_input": "#instagram #photo #japan",
     "bg_color_hex": "#FFFFFF",
     "enable_wm": False,
     "wm_type": "テキスト",
@@ -78,7 +79,7 @@ if "restore_data" in query_params:
             if k in DEFAULT_SETTINGS:
                 st.session_state[k] = v
         st.query_params.clear()
-        st.success("💾 前回保存した設定を読み込みました！")
+        st.success("💾 前回保存した設定（ハッシュタグ含む）を読み込みました！")
     except Exception:
         pass
 
@@ -102,7 +103,6 @@ if enable_wm:
     if wm_type == "テキスト":
         wm_text = st.sidebar.text_input("テキスト内容", key="wm_text")
         if available_fonts:
-            # セッション値が選択肢内に存在するか確認
             curr_font = st.session_state.get("selected_font_name", font_list[0])
             font_idx = font_list.index(curr_font) if curr_font in font_list else 0
             selected_font_name = st.sidebar.selectbox("フォント (字体)", font_list, index=font_idx, key="selected_font_name")
@@ -127,9 +127,10 @@ if enable_wm:
 st.sidebar.markdown("---")
 col_btn1, col_btn2 = st.sidebar.columns(2)
 
-# 保存ボタン処理（JavaScript経由でLocalStorageへ書き込み）
+# 保存ボタン処理（ハッシュタグ項目も追加）
 if col_btn1.button("💾 設定を保存", use_container_width=True):
     current_config = {
+        "tags_input": st.session_state.get("tags_input", "#instagram #photo #japan"),
         "bg_color_hex": st.session_state.bg_color_hex,
         "enable_wm": st.session_state.enable_wm,
         "wm_type": st.session_state.get("wm_type", "テキスト"),
@@ -146,7 +147,7 @@ if col_btn1.button("💾 設定を保存", use_container_width=True):
     js_code = f"""
         <script>
             localStorage.setItem('instaframer_config', '{json_str}');
-            alert('現在の設定をブラウザに保存しました！次回アクセス時もこの設定が引き継がれます。');
+            alert('ハッシュタグを含む現在の設定をブラウザに保存しました！次回アクセス時も引き継がれます。');
         </script>
     """
     components.html(js_code, height=0)
@@ -293,8 +294,7 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct,
 # メイン画面エリア
 # ----------------------------------
 st.subheader("🏷️ ハッシュタグ")
-default_tags = "#instagram #photo #japan"
-tags_input = st.text_area("ハッシュタグを入力・編集", value=default_tags, height=80)
+tags_input = st.text_area("ハッシュタグを入力・編集", key="tags_input", height=80)
 
 st.subheader("📁 画像を選択")
 uploaded_files = st.file_uploader(
