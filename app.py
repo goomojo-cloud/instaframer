@@ -81,17 +81,21 @@ if "init_loaded" not in st.session_state:
     if "fnt" in params and params.get("fnt") in font_list:
         st.session_state["selected_font_name"] = params.get("fnt")
     if "sz" in params:
-        st.session_state["size_ratio"] = int(params.get("sz"))
+        try: st.session_state["size_ratio"] = int(params.get("sz"))
+        except: pass
     if "tc" in params:
         st.session_state["text_color_hex"] = f"#{params.get('tc')}"
     if "pos" in params:
         st.session_state["wm_position"] = params.get("pos")
     if "ox" in params:
-        st.session_state["offset_x_pct"] = int(params.get("ox"))
+        try: st.session_state["offset_x_pct"] = int(params.get("ox"))
+        except: pass
     if "oy" in params:
-        st.session_state["offset_y_pct"] = int(params.get("oy"))
+        try: st.session_state["offset_y_pct"] = int(params.get("oy"))
+        except: pass
     if "op" in params:
-        st.session_state["wm_opacity"] = int(params.get("op"))
+        try: st.session_state["wm_opacity"] = int(params.get("op"))
+        except: pass
     if "tags" in params:
         st.session_state["tags_input"] = params.get("tags")
 
@@ -114,6 +118,7 @@ st.sidebar.markdown("---")
 st.sidebar.header("💧 ウォーターマーク設定")
 enable_wm = st.sidebar.checkbox("ウォーターマークを有効化", key="enable_wm")
 
+wm_logo_file = None
 if enable_wm:
     wm_type = st.sidebar.radio("種類", ["テキスト", "ロゴ画像"], key="wm_type")
     
@@ -144,21 +149,19 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🔗 マイ設定の保存")
 
 new_params = {
-    "bg": st.session_state.bg_color_hex.lstrip('#'),
-    "wm": "1" if st.session_state.enable_wm else "0",
-    "wmt": st.session_state.wm_type,
-    "txt": st.session_state.wm_text,
-    "fnt": st.session_state.selected_font_name,
-    "sz": str(st.session_state.size_ratio),
-    "tc": st.session_state.text_color_hex.lstrip('#'),
-    "pos": st.session_state.wm_position,
-    "ox": str(st.session_state.offset_x_pct),
-    "oy": str(st.session_state.offset_y_pct),
-    "op": str(st.session_state.wm_opacity),
-    "tags": st.session_state.tags_input
+    "bg": st.session_state.get("bg_color_hex", "#FFFFFF").lstrip('#'),
+    "wm": "1" if st.session_state.get("enable_wm", True) else "0",
+    "wmt": st.session_state.get("wm_type", "テキスト"),
+    "txt": st.session_state.get("wm_text", "© My Photo"),
+    "fnt": st.session_state.get("selected_font_name", font_list[0]),
+    "sz": str(st.session_state.get("size_ratio", 20)),
+    "tc": st.session_state.get("text_color_hex", "#FFFFFF").lstrip('#'),
+    "pos": st.session_state.get("wm_position", "左下"),
+    "ox": str(st.session_state.get("offset_x_pct", 3)),
+    "oy": str(st.session_state.get("offset_y_pct", 3)),
+    "op": str(st.session_state.get("wm_opacity", 70)),
+    "tags": st.session_state.get("tags_input", "#instagram #photo #japan")
 }
-
-encoded_query = urllib.parse.urlencode(new_params)
 
 st.sidebar.info("💡 設定変更後に下のボタンでURLを更新し、ブックマークしてください。")
 
@@ -185,7 +188,7 @@ def get_custom_font(font_name, font_size):
     return ImageFont.load_default(size=font_size)
 
 
-def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct, off_x_pct, off_y_pct):
+def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct, off_x_pct, off_y_pct, logo_file=None):
     offset_x, offset_y, photo_w, photo_h = photo_rect
     
     img_rgba = base_square_img.convert("RGBA")
@@ -246,8 +249,8 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct,
         
         draw.text((abs_x, abs_y), wm_txt, font=font, fill=(tc_rgb[0], tc_rgb[1], tc_rgb[2], alpha))
         
-    elif wm_t == "ロゴ画像" and 'wm_logo_file' in globals() and wm_logo_file is not None:
-        logo = Image.open(wm_logo_file).convert("RGBA")
+    elif wm_t == "ロゴ画像" and logo_file is not None:
+        logo = Image.open(logo_file).convert("RGBA")
         
         target_w = int(photo_w * (s_ratio / 100.0))
         aspect = logo.height / logo.width
@@ -330,7 +333,8 @@ if uploaded_files:
                     st.session_state.get("wm_position", "左下"), 
                     st.session_state.get("wm_opacity", 70), 
                     st.session_state.get("offset_x_pct", 3), 
-                    st.session_state.get("offset_y_pct", 3)
+                    st.session_state.get("offset_y_pct", 3),
+                    logo_file=wm_logo_file
                 )
             
             buf = io.BytesIO()
