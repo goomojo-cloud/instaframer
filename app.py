@@ -9,13 +9,9 @@ import extra_streamlit_components as stx
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
 
 # ----------------------------------
-# クッキーマネージャーの安全な初期化
+# クッキーマネージャーの安全な初期化 (キー指定で警告回避)
 # ----------------------------------
-@st.cache_resource
-def get_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_manager()
+cookie_manager = stx.CookieManager(key="instaframer_cm")
 
 st.title("📷 InstaFramer")
 st.caption("写真を枠付き正方形に変換 ＋ ウォーターマーク追加")
@@ -74,7 +70,7 @@ DEFAULT_SETTINGS = {
     "wm_opacity": 70
 }
 
-# クッキーから保存済み設定を取得（取得エラーを防ぐガード処理）
+# クッキーから保存済み設定を取得
 saved_cookie_val = None
 try:
     cookies = cookie_manager.get_all()
