@@ -9,9 +9,13 @@ import extra_streamlit_components as stx
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
 
 # ----------------------------------
-# クッキーマネージャーの初期化
+# クッキーマネージャーの安全な初期化
 # ----------------------------------
-cookie_manager = stx.get_cookie_manager()
+@st.cache_resource
+def get_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_manager()
 
 st.title("📷 InstaFramer")
 st.caption("写真を枠付き正方形に変換 ＋ ウォーターマーク追加")
@@ -70,8 +74,14 @@ DEFAULT_SETTINGS = {
     "wm_opacity": 70
 }
 
-# クッキーから保存済み設定を取得
-saved_cookie_val = cookie_manager.get('instaframer_user_config')
+# クッキーから保存済み設定を取得（取得エラーを防ぐガード処理）
+saved_cookie_val = None
+try:
+    cookies = cookie_manager.get_all()
+    if isinstance(cookies, dict):
+        saved_cookie_val = cookies.get('instaframer_user_config')
+except Exception:
+    pass
 
 if "config_loaded" not in st.session_state:
     st.session_state["config_loaded"] = False
@@ -152,13 +162,18 @@ if col_btn1.button("💾 マイ設定を保存", use_container_width=True):
         "wm_opacity": st.session_state.get("wm_opacity", 70)
     }
     json_str = json.dumps(current_config)
-    # クッキーに30日間の有効期限で保存
-    cookie_manager.set('instaframer_user_config', json_str, key="set_cookie", expires_at=None)
-    st.success("お使いの端末に個人設定を保存しました！次回以降も自動復元されます。")
+    try:
+        cookie_manager.set('instaframer_user_config', json_str, key="set_cookie")
+        st.success("お使いの端末に個人設定を保存しました！次回以降も自動復元されます。")
+    except Exception as e:
+        st.error(f"保存処理中にエラーが発生しました: {e}")
 
 # リセットボタン処理（クッキーを削除）
 if col_btn2.button("🔄 リセット", use_container_width=True):
-    cookie_manager.delete('instaframer_user_config', key="del_cookie")
+    try:
+        cookie_manager.delete('instaframer_user_config', key="del_cookie")
+    except Exception:
+        pass
     for k, v in DEFAULT_SETTINGS.items():
         st.session_state[k] = v
     st.session_state["config_loaded"] = True
