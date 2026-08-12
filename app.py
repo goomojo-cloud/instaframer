@@ -3,15 +3,9 @@ from PIL import Image, ImageOps, ImageDraw, ImageFont
 import io
 import urllib.request
 import os
-import json
-import extra_streamlit_components as stx
+import urllib.parse
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
-
-# ----------------------------------
-# クッキーマネージャーの安全な初期化 (キー指定で警告回避)
-# ----------------------------------
-cookie_manager = stx.CookieManager(key="instaframer_cm")
 
 st.title("📷 InstaFramer")
 st.caption("写真を枠付き正方形に変換 ＋ ウォーターマーク追加")
@@ -53,7 +47,7 @@ available_fonts = download_fonts()
 font_list = list(available_fonts.keys()) if available_fonts else ["デフォルト"]
 
 # ----------------------------------
-# 初期値設定 & クッキーからの復元
+# 初期値設定 & URLパラメータからの復元
 # ----------------------------------
 DEFAULT_SETTINGS = {
     "tags_input": "#instagram #photo #japan",
@@ -70,33 +64,40 @@ DEFAULT_SETTINGS = {
     "wm_opacity": 70
 }
 
-# クッキーから保存済み設定を取得
-saved_cookie_val = None
-try:
-    cookies = cookie_manager.get_all()
-    if isinstance(cookies, dict):
-        saved_cookie_val = cookies.get('instaframer_user_config')
-except Exception:
-    pass
+# URLパラメータを取得してセッション状態を復元
+params = st.query_params
 
-if "config_loaded" not in st.session_state:
-    st.session_state["config_loaded"] = False
+if "init_loaded" not in st.session_state:
+    st.session_state["init_loaded"] = True
+    if "bg" in params:
+        st.session_state["bg_color_hex"] = f"#{params.get('bg')}"
+    if "wm" in params:
+        st.session_state["enable_wm"] = params.get("wm") == "1"
+    if "wmt" in params:
+        st.session_state["wm_type"] = params.get("wmt")
+    if "txt" in params:
+        st.session_state["wm_text"] = params.get("txt")
+    if "fnt" in params and params.get("fnt") in font_list:
+        st.session_state["selected_font_name"] = params.get("fnt")
+    if "sz" in params:
+        st.session_state["size_ratio"] = int(params.get("sz"))
+    if "tc" in params:
+        st.session_state["text_color_hex"] = f"#{params.get('tc')}"
+    if "pos" in params:
+        st.session_state["wm_position"] = params.get("pos")
+    if "ox" in params:
+        st.session_state["offset_x_pct"] = int(params.get("ox"))
+    if "oy" in params:
+        st.session_state["offset_y_pct"] = int(params.get("oy"))
+    if "op" in params:
+        st.session_state["wm_opacity"] = int(params.get("op"))
+    if "tags" in params:
+        st.session_state["tags_input"] = params.get("tags")
 
-if not st.session_state["config_loaded"] and saved_cookie_val:
-    try:
-        loaded_cfg = json.loads(saved_cookie_val)
-        for k, v in loaded_cfg.items():
-            if k in DEFAULT_SETTINGS:
-                st.session_state[k] = v
-        st.session_state["config_loaded"] = True
-        st.toast("💾 保存された個人設定を読み込みました！")
-    except Exception:
-        pass
-
-# 初期値未設定のものを割り当て
-for key, val in DEFAULT_SETTINGS.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
+# 初期値補完
+for k, v in DEFAULT_SETTINGS.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 # ----------------------------------
 # サイドバー設定エリア
@@ -137,42 +138,40 @@ if enable_wm:
     offset_y_pct = st.sidebar.number_input("上下余白 (写真高の %)", min_value=0, max_value=45, step=1, key="offset_y_pct")
     wm_opacity = st.sidebar.number_input("不透明度 (%)", min_value=10, max_value=100, step=5, key="wm_opacity")
 
-# --- 保存 / リセット ボタンエリア ---
+# --- 設定リンク作成エリア ---
 st.sidebar.markdown("---")
-col_btn1, col_btn2 = st.sidebar.columns(2)
+st.sidebar.subheader("🔗 マイ設定の保存")
 
-# 保存ボタン処理（端末のクッキーに書き込み）
-if col_btn1.button("💾 マイ設定を保存", use_container_width=True):
-    current_config = {
-        "tags_input": st.session_state.get("tags_input", "#instagram #photo #japan"),
-        "bg_color_hex": st.session_state.get("bg_color_hex", "#FFFFFF"),
-        "enable_wm": st.session_state.get("enable_wm", False),
-        "wm_type": st.session_state.get("wm_type", "テキスト"),
-        "wm_text": st.session_state.get("wm_text", "© My Photo"),
-        "selected_font_name": st.session_state.get("selected_font_name", font_list[0]),
-        "size_ratio": st.session_state.get("size_ratio", 30),
-        "text_color_hex": st.session_state.get("text_color_hex", "#FFFFFF"),
-        "wm_position": st.session_state.get("wm_position", "右下"),
-        "offset_x_pct": st.session_state.get("offset_x_pct", 3),
-        "offset_y_pct": st.session_state.get("offset_y_pct", 3),
-        "wm_opacity": st.session_state.get("wm_opacity", 70)
-    }
-    json_str = json.dumps(current_config)
-    try:
-        cookie_manager.set('instaframer_user_config', json_str, key="set_cookie")
-        st.success("お使いの端末に個人設定を保存しました！次回以降も自動復元されます。")
-    except Exception as e:
-        st.error(f"保存処理中にエラーが発生しました: {e}")
+# 現在のパラメータURLを生成
+new_params = {
+    "bg": st.session_state.bg_color_hex.lstrip('#'),
+    "wm": "1" if st.session_state.enable_wm else "0",
+    "wmt": st.session_state.wm_type,
+    "txt": st.session_state.wm_text,
+    "fnt": st.session_state.selected_font_name,
+    "sz": str(st.session_state.size_ratio),
+    "tc": st.session_state.text_color_hex.lstrip('#'),
+    "pos": st.session_state.wm_position,
+    "ox": str(st.session_state.offset_x_pct),
+    "oy": str(st.session_state.offset_y_pct),
+    "op": str(st.session_state.wm_opacity),
+    "tags": st.session_state.tags_input
+}
 
-# リセットボタン処理（クッキーを削除）
-if col_btn2.button("🔄 リセット", use_container_width=True):
-    try:
-        cookie_manager.delete('instaframer_user_config', key="del_cookie")
-    except Exception:
-        pass
+encoded_query = urllib.parse.urlencode(new_params)
+
+st.sidebar.info("💡 下のボタンで「マイ設定用URL」を生成し、ブックマークしてください。")
+
+if st.sidebar.button("🔗 この設定用のURLを作成", use_container_width=True):
+    st.query_params.clear()
+    for k, v in new_params.items():
+        st.query_params[k] = v
+    st.sidebar.success("URLに設定を反映しました！この画面のブラウザURLをブックマーク登録（またはホーム画面に追加）してください。")
+
+if st.sidebar.button("🔄 デフォルトに戻す", use_container_width=True):
+    st.query_params.clear()
     for k, v in DEFAULT_SETTINGS.items():
         st.session_state[k] = v
-    st.session_state["config_loaded"] = True
     st.rerun()
 
 
