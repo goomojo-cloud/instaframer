@@ -52,16 +52,16 @@ font_list = list(available_fonts.keys()) if available_fonts else ["デフォル�
 DEFAULT_SETTINGS = {
     "tags_input": "#instagram #photo #japan",
     "bg_color_hex": "#FFFFFF",
-    "enable_wm": False,
+    "enable_wm": True,
     "wm_type": "テキスト",
     "wm_text": "© My Photo",
     "selected_font_name": font_list[0],
-    "size_ratio": 30,
-    "text_color_hex": "#FFFFFF",
-    "wm_position": "右下",
-    "offset_x_pct": 3,
-    "offset_y_pct": 3,
-    "wm_opacity": 70
+    "size_ratio": 20,           # ご指定値: 20
+    "text_color_hex": "#FFFFFF", # ご指定値: 白 (#FFFFFF)
+    "wm_position": "左下",      # ご指定値: 左下
+    "offset_x_pct": 3,          # ご指定値: 3
+    "offset_y_pct": 3,          # ご指定値: 3
+    "wm_opacity": 70            # ご指定値: 70
 }
 
 # URLパラメータを取得してセッション状態を復元
@@ -129,8 +129,8 @@ if enable_wm:
         size_ratio = st.sidebar.number_input("ロゴの大きさ (元画像幅の %)", min_value=5, max_value=90, step=1, key="size_ratio")
 
     pos_options = ["右下", "左下", "右上", "左上", "中央"]
-    curr_pos = st.session_state.get("wm_position", "右下")
-    pos_idx = pos_options.index(curr_pos) if curr_pos in pos_options else 0
+    curr_pos = st.session_state.get("wm_position", "左下")
+    pos_idx = pos_options.index(curr_pos) if curr_pos in pos_options else 1
     wm_position = st.sidebar.selectbox("配置位置", pos_options, index=pos_idx, key="wm_position")
     
     st.sidebar.markdown("**📍 位置・透明度の微調整**")
@@ -142,7 +142,6 @@ if enable_wm:
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔗 マイ設定の保存")
 
-# 現在のパラメータURLを生成
 new_params = {
     "bg": st.session_state.bg_color_hex.lstrip('#'),
     "wm": "1" if st.session_state.enable_wm else "0",
@@ -160,7 +159,7 @@ new_params = {
 
 encoded_query = urllib.parse.urlencode(new_params)
 
-st.sidebar.info("💡 下のボタンで「マイ設定用URL」を生成し、ブックマークしてください。")
+st.sidebar.info("💡 設定変更後に下のボタンでURLを更新し、ブックマークしてください。")
 
 if st.sidebar.button("🔗 この設定用のURLを作成", use_container_width=True):
     st.query_params.clear()
@@ -198,7 +197,7 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct,
     
     wm_t = st.session_state.get("wm_type", "テキスト")
     wm_txt = st.session_state.get("wm_text", "")
-    s_ratio = st.session_state.get("size_ratio", 30)
+    s_ratio = st.session_state.get("size_ratio", 20)
     font_n = st.session_state.get("selected_font_name", font_list[0])
     tc_hex = st.session_state.get("text_color_hex", "#FFFFFF")
     
@@ -325,7 +324,7 @@ if uploaded_files:
                 photo_rect = (offset_x, offset_y, photo_w, photo_h)
                 square_img = apply_watermark_on_photo(
                     square_img, photo_rect, 
-                    st.session_state.get("wm_position", "右下"), 
+                    st.session_state.get("wm_position", "左下"), 
                     st.session_state.get("wm_opacity", 70), 
                     st.session_state.get("offset_x_pct", 3), 
                     st.session_state.get("offset_y_pct", 3)
