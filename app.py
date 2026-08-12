@@ -15,13 +15,15 @@ st.caption("写真を枠付き正方形に変換 ＋ ウォーターマーク追
 FONTS_DIR = "fonts"
 os.makedirs(FONTS_DIR, exist_ok=True)
 
-# 使用するフリーフォントの定義（Google Fonts等から取得）
+# jsDelivr CDN経由で安定取得できるGoogle Fonts一覧（計7種類）
 FONT_URLS = {
-    "ゴシック体 (Zen Kaku Gothic)": "https://github.com/google/fonts/raw/main/ofl/zenkakugothicnew/ZenKakuGothicNew-Bold.ttf",
-    "明朝体 (Shippori Mincho)": "https://github.com/google/fonts/raw/main/ofl/shipporimincho/ShipporiMincho-Bold.ttf",
-    "英文モダン (Montserrat)": "https://github.com/google/fonts/raw/main/ofl/montserrat/Montserrat-Bold.ttf",
-    "英文エレガント (Cinzel)": "https://github.com/google/fonts/raw/main/ofl/cinzel/Cinzel-Bold.ttf",
-    "手書き風 (Caveat)": "https://github.com/google/fonts/raw/main/ofl/caveat/Caveat-Bold.ttf"
+    "ゴシック体 (Zen Kaku Gothic)": "https://cdn.jsdelivr.net/fontsource/fonts/zen-kaku-gothic-new@latest/japanese-700-normal.ttf",
+    "明朝体 (Shippori Mincho)": "https://cdn.jsdelivr.net/fontsource/fonts/shippori-mincho@latest/japanese-700-normal.ttf",
+    "丸ゴシック (M PLUS Rounded 1c)": "https://cdn.jsdelivr.net/fontsource/fonts/m-plus-rounded-1c@latest/japanese-700-normal.ttf",
+    "英文サンセリフ (Montserrat)": "https://cdn.jsdelivr.net/fontsource/fonts/montserrat@latest/latin-700-normal.ttf",
+    "英文セリフ (Cinzel)": "https://cdn.jsdelivr.net/fontsource/fonts/cinzel@latest/latin-700-normal.ttf",
+    "手書き風 (Caveat)": "https://cdn.jsdelivr.net/fontsource/fonts/caveat@latest/latin-700-normal.ttf",
+    "筆記体 (Sacramento)": "https://cdn.jsdelivr.net/fontsource/fonts/sacramento@latest/latin-400-normal.ttf"
 }
 
 @st.cache_data
@@ -29,14 +31,17 @@ def download_fonts():
     """フォントファイルをローカルにキャッシュダウンロード"""
     font_paths = {}
     for font_name, url in FONT_URLS.items():
-        filename = os.path.basename(url)
+        filename = f"{font_name.split()[0]}.ttf"
         local_path = os.path.join(FONTS_DIR, filename)
         if not os.path.exists(local_path):
             try:
-                urllib.request.urlretrieve(url, local_path)
+                # ユーザーエージェントを設定してダウンロードエラーを防止
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req) as response, open(local_path, 'wb') as out_file:
+                    out_file.write(response.read())
             except Exception:
                 pass
-        if os.path.exists(local_path):
+        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
             font_paths[font_name] = local_path
     return font_paths
 
@@ -64,6 +69,8 @@ wm_opacity = 50
 size_ratio = 30
 text_color_hex = "#FFFFFF"
 selected_font_name = list(available_fonts.keys())[0] if available_fonts else None
+offset_x_pct = 3
+offset_y_pct = 3
 
 if enable_wm:
     wm_type = st.sidebar.radio("種類", ["テキスト", "ロゴ画像"])
@@ -72,13 +79,19 @@ if enable_wm:
         wm_text = st.sidebar.text_input("テキスト内容", value="© My Photo")
         if available_fonts:
             selected_font_name = st.sidebar.selectbox("フォント (字体)", list(available_fonts.keys()))
-        size_ratio = st.sidebar.slider("文字の横幅割合 (元画像幅の %)", 10, 95, 30)
+        size_ratio = st.sidebar.slider("文字の横幅割合 (元画像幅の %)", 5, 95, 30)
         text_color_hex = st.sidebar.color_picker("文字色", "#FFFFFF")
     else:
         wm_logo_file = st.sidebar.file_uploader("ロゴ画像をアップロード", type=["png", "jpg", "jpeg"])
         size_ratio = st.sidebar.slider("ロゴの横幅割合 (元画像幅の %)", 5, 90, 20)
 
     wm_position = st.sidebar.selectbox("配置位置", ["右下", "左下", "右上", "左上", "中央"])
+    
+    # 微調整オプション
+    st.sidebar.markdown("**📍 位置の微調整**")
+    offset_x_pct = st.sidebar.slider("左右の余白 (写真幅の %)", 0, 30, 3)
+    offset_y_pct = st.sidebar.slider("上下の余白 (写真高の %)", 0, 30, 3)
+
     wm_opacity = st.sidebar.slider("不透明度 (%)", 10, 100, 70)
 
 
@@ -93,7 +106,7 @@ def get_custom_font(font_name, font_size):
     return ImageFont.load_default(size=font_size)
 
 
-def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct):
+def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct, off_x_pct, off_y_pct):
     """正方形キャンバス上の『元画像（写真本体）領域』内にウォーターマークを配置"""
     offset_x, offset_y, photo_w, photo_h = photo_rect
     
@@ -102,7 +115,10 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct)
     draw = ImageDraw.Draw(overlay)
     
     alpha = int(255 * (opacity_pct / 100))
-    margin = int(min(photo_w, photo_h) * 0.03)
+    
+    # ユーザー指定の微調整マージン（ピクセル換算）
+    margin_x = int(photo_w * (off_x_pct / 100.0))
+    margin_y = int(photo_h * (off_y_pct / 100.0))
     
     if wm_type == "テキスト" and wm_text:
         target_text_w = int(photo_w * (size_ratio / 100.0))
@@ -124,18 +140,19 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
         
+        # 写真領域内の相対位置計算（微調整マージン適用）
         if position == "右下":
-            rel_x = photo_w - text_w - margin
-            rel_y = photo_h - text_h - margin
+            rel_x = photo_w - text_w - margin_x
+            rel_y = photo_h - text_h - margin_y
         elif position == "左下":
-            rel_x = margin
-            rel_y = photo_h - text_h - margin
+            rel_x = margin_x
+            rel_y = photo_h - text_h - margin_y
         elif position == "右上":
-            rel_x = photo_w - text_w - margin
-            rel_y = margin
+            rel_x = photo_w - text_w - margin_x
+            rel_y = margin_y
         elif position == "左上":
-            rel_x = margin
-            rel_y = margin
+            rel_x = margin_x
+            rel_y = margin_y
         else:  # 中央
             rel_x = (photo_w - text_w) // 2
             rel_y = (photo_h - text_h) // 2
@@ -161,17 +178,17 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct)
         logo = Image.merge("RGBA", (r, g, b, a))
         
         if position == "右下":
-            rel_x = photo_w - target_w - margin
-            rel_y = photo_h - target_h - margin
+            rel_x = photo_w - target_w - margin_x
+            rel_y = photo_h - target_h - margin_y
         elif position == "左下":
-            rel_x = margin
-            rel_y = photo_h - target_h - margin
+            rel_x = margin_x
+            rel_y = photo_h - target_h - margin_y
         elif position == "右上":
-            rel_x = photo_w - target_w - margin
-            rel_y = margin
+            rel_x = photo_w - target_w - margin_x
+            rel_y = margin_y
         elif position == "左上":
-            rel_x = margin
-            rel_y = margin
+            rel_x = margin_x
+            rel_y = margin_y
         else:  # 中央
             rel_x = (photo_w - target_w) // 2
             rel_y = (photo_h - target_h) // 2
@@ -222,7 +239,9 @@ if uploaded_files:
             
             if enable_wm:
                 photo_rect = (offset_x, offset_y, photo_w, photo_h)
-                square_img = apply_watermark_on_photo(square_img, photo_rect, wm_position, wm_opacity)
+                square_img = apply_watermark_on_photo(
+                    square_img, photo_rect, wm_position, wm_opacity, offset_x_pct, offset_y_pct
+                )
             
             buf = io.BytesIO()
             square_img.save(buf, format="JPEG", quality=95)
