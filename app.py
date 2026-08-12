@@ -45,6 +45,22 @@ if enable_wm:
     wm_opacity = st.sidebar.slider("不透明度 (%)", 10, 100, 70)
 
 
+def get_scalable_font(font_size):
+    """OS環境に依存せず、指定サイズでスケーラブルなフォントオブジェクトを取得する関数"""
+    try:
+        # Pillow標準組み込みのTrueTypeフォント（FreeMono等）を取得
+        return ImageFont.load_default(size=font_size)
+    except TypeError:
+        # 古いPillowバージョンのフォールバック処理
+        try:
+            return ImageFont.truetype("DejaVuSans.ttf", font_size)
+        except OSError:
+            try:
+                return ImageFont.truetype("arial.ttf", font_size)
+            except OSError:
+                return ImageFont.load_default()
+
+
 def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct):
     """
     正方形キャンバス上の『元画像（写真本体）領域』内にウォーターマークを配置する処理
@@ -57,35 +73,31 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct)
     draw = ImageDraw.Draw(overlay)
     
     alpha = int(255 * (opacity_pct / 100))
-    # 元画像（写真）の端からのマージン (3%)
     margin = int(min(photo_w, photo_h) * 0.03)
     
     if wm_type == "テキスト" and wm_text:
-        # 目標とするテキストの横幅（元画像幅に対する割合）
         target_text_w = int(photo_w * (size_ratio / 100.0))
         
-        font_size = 100
-        try:
-            font = ImageFont.truetype("arial.ttf", font_size)
-        except OSError:
-            font = ImageFont.load_default()
-            
-        bbox = draw.textbbox((0, 0), wm_text, font=font)
+        # 基準サイズ100pxでフォントを読み込んで幅を測定
+        test_font_size = 100
+        test_font = get_scalable_font(test_font_size)
+        
+        bbox = draw.textbbox((0, 0), wm_text, font=test_font)
         initial_w = bbox[2] - bbox[0]
         
         if initial_w > 0:
-            calculated_font_size = int(font_size * (target_text_w / initial_w))
+            calculated_font_size = int(test_font_size * (target_text_w / initial_w))
             font_size = max(10, calculated_font_size)
-            try:
-                font = ImageFont.truetype("arial.ttf", font_size)
-            except OSError:
-                font = ImageFont.load_default()
+            font = get_scalable_font(font_size)
+        else:
+            font = test_font
 
+        # 決定したサイズで描画範囲を正確に計算
         bbox = draw.textbbox((0, 0), wm_text, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
         
-        # 写真領域内の相対座標計算
+        # 写真領域内の相対位置計算
         if position == "右下":
             rel_x = photo_w - text_w - margin
             rel_y = photo_h - text_h - margin
@@ -102,7 +114,6 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct)
             rel_x = (photo_w - text_w) // 2
             rel_y = (photo_h - text_h) // 2
             
-        # 絶対座標に変換（写真のオフセットを加算）
         abs_x = offset_x + rel_x
         abs_y = offset_y + rel_y
             
@@ -184,7 +195,7 @@ if uploaded_files:
             offset_y = (max_side - photo_h) // 2
             square_img.paste(image, (offset_x, offset_y))
             
-            # ウォーターマーク処理の適用（写真本体の範囲情報を渡す）
+            # ウォーターマーク処理の適用
             if enable_wm:
                 photo_rect = (offset_x, offset_y, photo_w, photo_h)
                 square_img = apply_watermark_on_photo(square_img, photo_rect, wm_position, wm_opacity)
