@@ -1,18 +1,23 @@
 import streamlit as st
 from PIL import Image, ImageOps, ImageDraw, ImageFont
 import io
-import urllib.request
 import os
-import urllib.parse
 import zipfile
+import traceback
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
+
+# エラーハンドリング用ラップ
+try:
+    import requests
+except ImportError:
+    requests = None
 
 st.title("📷 InstaFramer")
 st.caption("写真を枠付き正方形に変換 ＋ ウォーターマーク追加")
 
 # ----------------------------------
-# フォント自動ダウンロード＆管理機能
+# フォント自動ダウンロード＆管理機能（安全設計）
 # ----------------------------------
 FONTS_DIR = "fonts"
 os.makedirs(FONTS_DIR, exist_ok=True)
@@ -30,22 +35,31 @@ FONT_URLS = {
 @st.cache_data
 def download_fonts():
     font_paths = {}
+    if not requests:
+        return font_paths
+
+    headers = {'User-Agent': 'Mozilla/5.0'}
     for font_name, url in FONT_URLS.items():
         filename = f"{font_name.split()[0]}.ttf"
         local_path = os.path.join(FONTS_DIR, filename)
         if not os.path.exists(local_path):
             try:
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req) as response, open(local_path, 'wb') as out_file:
-                    out_file.write(response.read())
+                res = requests.get(url, headers=headers, timeout=5)
+                if res.status_code == 200:
+                    with open(local_path, 'wb') as f:
+                        f.write(res.content)
             except Exception:
                 pass
         if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
             font_paths[font_name] = local_path
     return font_paths
 
-available_fonts = download_fonts()
-font_list = list(available_fonts.keys()) if available_fonts else ["デフォルト"]
+try:
+    available_fonts = download_fonts()
+except Exception as e:
+    available_fonts = {}
+
+font_list = list(available_fonts.keys()) if available_fonts else ["デフォルトフォント"]
 
 # ----------------------------------
 # 初期値設定 & URLパラメータからの復元
@@ -124,7 +138,7 @@ if enable_wm:
     
     if wm_type == "テキスト":
         wm_text = st.sidebar.text_input("テキスト内容", key="wm_text")
-        if available_fonts:
+        if font_list:
             curr_font = st.session_state.get("selected_font_name", font_list[0])
             font_idx = font_list.index(curr_font) if curr_font in font_list else 0
             selected_font_name = st.sidebar.selectbox("フォント (字体)", font_list, index=font_idx, key="selected_font_name")
@@ -169,7 +183,7 @@ if st.sidebar.button("🔗 この設定用のURLを作成", use_container_width=
     st.query_params.clear()
     for k, v in new_params.items():
         st.query_params[k] = v
-    st.sidebar.success("URLに設定を反映しました！この画面のブラウザURLをブックマーク登録（またはホーム画面に追加）してください。")
+    st.sidebar.success("URLに設定を反映しました！この画面のブラウザURLをブックマーク登録してください。")
 
 if st.sidebar.button("🔄 デフォルトに戻す", use_container_width=True):
     st.query_params.clear()
@@ -183,9 +197,12 @@ def get_custom_font(font_name, font_size):
     if font_path and os.path.exists(font_path):
         try:
             return ImageFont.truetype(font_path, font_size)
-        except OSError:
+        except Exception:
             pass
-    return ImageFont.load_default(size=font_size)
+    try:
+        return ImageFont.load_default(size=font_size)
+    except TypeError:
+        return ImageFont.load_default()
 
 
 def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct, off_x_pct, off_y_pct, logo_file=None):
@@ -211,9 +228,12 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct,
         test_font_size = 100
         test_font = get_custom_font(font_n, test_font_size)
         
-        bbox = draw.textbbox((0, 0), wm_txt, font=test_font)
-        initial_w = bbox[2] - bbox[0]
-        
+        try:
+            bbox = draw.textbbox((0, 0), wm_txt, font=test_font)
+            initial_w = bbox[2] - bbox[0]
+        except Exception:
+            initial_w = 100
+
         if initial_w > 0:
             calculated_font_size = int(test_font_size * (target_text_w / initial_w))
             font_size = max(10, calculated_font_size)
@@ -221,9 +241,12 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct,
         else:
             font = test_font
 
-        bbox = draw.textbbox((0, 0), wm_txt, font=font)
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
+        try:
+            bbox = draw.textbbox((0, 0), wm_txt, font=font)
+            text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+        except Exception:
+            text_w, text_h = 100, 20
         
         if position == "右下":
             rel_x = photo_w - text_w - margin_x
@@ -289,7 +312,6 @@ def apply_watermark_on_photo(base_square_img, photo_rect, position, opacity_pct,
 # ----------------------------------
 # メイン画面エリア
 # ----------------------------------
-# 1. 上段：画像選択エリア
 st.subheader("📁 画像を選択")
 uploaded_files = st.file_uploader(
     "iPhoneの写真ライブラリ等から画像を選択してください（複数可）", 
@@ -297,11 +319,9 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-# 2. 中段：ハッシュタグエリア
 st.subheader("🏷️ ハッシュタグ")
 tags_input = st.text_area("ハッシュタグを入力・編集", key="tags_input", height=80)
 
-# 3. 下段：変換結果＆ダウンロードエリア
 if uploaded_files:
     st.markdown("---")
     st.success(f"{len(uploaded_files)} 枚の画像が選択されました")
@@ -347,7 +367,6 @@ if uploaded_files:
         except Exception as e:
             st.error(f"エラーが発生しました ({uploaded_file.name}): {e}")
 
-    # 複数枚選択されている場合に全画像ZIPダウンロードボタンを表示
     if len(processed_images) > 1:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
@@ -364,7 +383,6 @@ if uploaded_files:
         )
         st.markdown("---")
 
-    # 個別プレビュー＆ダウンロード
     for idx, (file_name, byte_im, square_img) in enumerate(processed_images):
         cols = st.columns([1, 2])
         with cols[0]:
