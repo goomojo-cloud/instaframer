@@ -8,9 +8,10 @@ from urllib.parse import unquote
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
 
-# 💡 画像選択エリアの高さをCSSで拡張（ハッシュタグエリアの160pxと同等に指定）
+# 💡 画像選択エリアの拡張 & フッター/ヘッダー非表示用CSS
 st.markdown("""
 <style>
+    /* 画像選択エリアの高さを拡張 */
     [data-testid="stFileUploaderDropzone"] {
         min-height: 160px !important;
         display: flex;
@@ -18,6 +19,15 @@ st.markdown("""
         justify-content: center;
         align-items: center;
     }
+    
+    /* 画面下部の「Hosted with Streamlit」などのフッターを非表示 */
+    footer {visibility: hidden;}
+    
+    /* 画面右上のStreamlitメニュー（MainMenu）を非表示にする場合は以下も有効化 */
+    #MainMenu {visibility: hidden;}
+    
+    /* 画面上部のカラーバーを非表示にする場合 */
+    header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
