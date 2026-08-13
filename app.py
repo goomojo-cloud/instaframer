@@ -4,7 +4,7 @@ import io
 import os
 import zipfile
 import gc
-from urllib.parse import unquote  # 💡 URLエンコード解除用に追加
+from urllib.parse import unquote
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
 
@@ -51,7 +51,6 @@ try:
         if "op" in params:
             try: st.session_state["wm_opacity"] = int(params.get("op"))
             except: pass
-        # 💡 URLエンコードされた %23 を # にデコードする処理を追加
         if "tags" in params: st.session_state["tags_input"] = unquote(params.get("tags"))
 except Exception:
     pass
@@ -264,7 +263,8 @@ uploaded_files = st.file_uploader(
 )
 
 st.subheader("🏷️ ハッシュタグ")
-tags_input = st.text_area("ハッシュタグを入力・編集", key="tags_input", height=80)
+# 💡 高さを160px（約6行分）に調整
+tags_input = st.text_area("ハッシュタグを入力・編集", key="tags_input", height=160)
 
 if tags_input.strip():
     escaped_tags = tags_input.replace("`", "'")
