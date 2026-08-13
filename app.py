@@ -4,6 +4,7 @@ import io
 import os
 import zipfile
 import gc
+from urllib.parse import unquote  # 💡 URLエンコード解除用に追加
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
 
@@ -35,7 +36,7 @@ try:
         if "bg" in params: st.session_state["bg_color_hex"] = f"#{params.get('bg')}"
         if "wm" in params: st.session_state["enable_wm"] = params.get("wm") == "1"
         if "wmt" in params: st.session_state["wm_type"] = params.get("wmt")
-        if "txt" in params: st.session_state["wm_text"] = params.get("txt")
+        if "txt" in params: st.session_state["wm_text"] = unquote(params.get("txt"))
         if "sz" in params:
             try: st.session_state["size_ratio"] = int(params.get("sz"))
             except: pass
@@ -50,7 +51,8 @@ try:
         if "op" in params:
             try: st.session_state["wm_opacity"] = int(params.get("op"))
             except: pass
-        if "tags" in params: st.session_state["tags_input"] = params.get("tags")
+        # 💡 URLエンコードされた %23 を # にデコードする処理を追加
+        if "tags" in params: st.session_state["tags_input"] = unquote(params.get("tags"))
 except Exception:
     pass
 
@@ -246,7 +248,6 @@ def process_single_image(uploaded_file, idx, bg_rgb, enable_watermark, logo_file
     del square_img
     gc.collect()
     
-    # 💡 ファイル名を「元ファイル名_sq_連番.jpg」形式に変更
     raw_name = os.path.splitext(uploaded_file.name)[0]
     file_name = f"{raw_name}_sq_{idx+1}.jpg"
     return file_name, byte_im
