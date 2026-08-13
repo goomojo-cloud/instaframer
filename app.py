@@ -8,7 +8,7 @@ from urllib.parse import unquote
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
 
-# 💡 画像選択エリアの拡張 & フッター/ヘッダー非表示用CSS
+# 💡 ドロップゾーンの高さ調整 ＆ 右下のStreamlitバッジ完全非表示用CSS
 st.markdown("""
 <style>
     /* 画像選択エリアの高さを拡張 */
@@ -20,14 +20,23 @@ st.markdown("""
         align-items: center;
     }
     
-    /* 画面下部の「Hosted with Streamlit」などのフッターを非表示 */
-    footer {visibility: hidden;}
+    /* 画面下部のフッターを非表示 */
+    footer {visibility: hidden !important; display: none !important;}
     
-    /* 画面右上のStreamlitメニュー（MainMenu）を非表示にする場合は以下も有効化 */
-    #MainMenu {visibility: hidden;}
-    
-    /* 画面上部のカラーバーを非表示にする場合 */
-    header {visibility: hidden;}
+    /* 右下の Hosted with Streamlit バッジやツールバーコンテナを強制非表示 */
+    .stAppViewerFooter, 
+    [data-testid="stStatusWidget"],
+    [data-testid="stDecoration"],
+    [class*="viewerBadge"],
+    [class*="stActionButton"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+    }
+
+    /* 画面右上・上部の要素非表示 */
+    #MainMenu {visibility: hidden !important;}
+    header {visibility: hidden !important;}
 </style>
 """, unsafe_allow_html=True)
 
