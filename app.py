@@ -8,6 +8,19 @@ from urllib.parse import unquote
 
 st.set_page_config(page_title="InstaFramer", page_icon="📷", layout="centered")
 
+# 💡 画像選択エリアの高さをCSSで拡張（ハッシュタグエリアの160pxと同等に指定）
+st.markdown("""
+<style>
+    [data-testid="stFileUploaderDropzone"] {
+        min-height: 160px !important;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("📷 InstaFramer")
 st.caption("写真を枠付き正方形に変換 ＋ ウォーターマーク追加")
 
@@ -263,7 +276,6 @@ uploaded_files = st.file_uploader(
 )
 
 st.subheader("🏷️ ハッシュタグ")
-# 💡 高さを160px（約6行分）に調整
 tags_input = st.text_area("ハッシュタグを入力・編集", key="tags_input", height=160)
 
 if tags_input.strip():
